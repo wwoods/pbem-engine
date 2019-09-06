@@ -1,0 +1,32 @@
+{
+  "name": "pbem-engine",
+  "version": "0.1.0",
+  "description": "A Play-By-E-Mail platform for developing and distributing games, handling all network communication so developers can focus on mechanics.",
+  "main": "./lib/index.js",
+  "files": ["./lib/**/*"],
+  "bin": {
+    "pbem": "./lib/bin/pbem.js"
+  },
+  "scripts": {
+    "build": "tsc -p . && ./shebangify ./lib/bin/pbem.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wwoods/pbem-engine.git"
+  },
+  "keywords": [
+    "pbem",
+    "game",
+    "engine"
+  ],
+  "author": "Walt Woods <woodswalben@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/wwoods/pbem-engine/issues"
+  },
+  "homepage": "https://github.com/wwoods/pbem-engine#readme",
+  "devDependencies": {
+    "typescript": "^3.6.2"
+  }
+}
