@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "A Play-By-E-Mail platform for developing and distributing games, handling all network communication so developers can focus on mechanics.",
   "main": "./lib/index.js",
-  "files": ["./lib/**/*"],
+  "files": [
+    "./lib/**/*"
+  ],
   "bin": {
     "pbem": "./lib/bin/pbem.js"
   },
@@ -27,6 +29,11 @@
   },
   "homepage": "https://github.com/wwoods/pbem-engine#readme",
   "devDependencies": {
+    "@types/rimraf": "^2.0.2",
     "typescript": "^3.6.2"
+  },
+  "dependencies": {
+    "commander": "^3.0.1",
+    "rimraf": "^3.0.0"
   }
 }
