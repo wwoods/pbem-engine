@@ -2,11 +2,15 @@
 import assert from 'assert';
 import {execFileSync} from 'child_process';
 import fs from 'fs';
+import fsExtra from 'fs-extra';
 import path from 'path';
 import rimraf from 'rimraf';
+import {fileURLToPath} from 'url';
 
-const appVersion = 1;
+//Remember, path relative to typescript-built "lib" folder.
+const pbemVueTemplate = path.join(path.dirname(__filename), "../../../src/ui-app/vue/template");
 
+/*
 const vueAppConfig = {
   "useConfigFiles": false,
   "plugins": {
@@ -22,21 +26,21 @@ const vueAppConfig = {
   "router": true,
   "routerHistoryMode": true,
   "cssPreprocessor": "dart-sass"
-};
-
-// Run "vue create -i <json> <app name>"
+};*/
 
 export type Config = any;
 
 export function setup(buildPath: string, config: Config) {
-  let cfg: any = {};
+  const cfgTemplate: any = JSON.parse(fs.readFileSync(path.join(pbemVueTemplate,
+      "package.json"), 'utf8'));
+
+  let cfg: any = undefined;
   const cfgPath = path.join(buildPath, "package.json");
   if (fs.existsSync(cfgPath)) {
     cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   }
 
-  let p: any = cfg ? cfg.org_pbem ? cfg.org_pbem.version !== undefined ? cfg.org_pbem.version : 0 : 0 : 0;
-  if (p < appVersion) {
+  if (cfg === undefined || cfg.org_pbem.version < cfgTemplate.org_pbem.version) {
     rimraf.sync(buildPath);
 
     const cwd = path.dirname(buildPath);
@@ -44,11 +48,14 @@ export function setup(buildPath: string, config: Config) {
       fs.mkdirSync(cwd);
     }
 
+    fsExtra.copySync(pbemVueTemplate, buildPath);
+
+    /**
     const proj = path.basename(buildPath);
     execFileSync('vue', ['create', '-i', JSON.stringify(vueAppConfig), proj], {
         cwd: cwd,
         stdio: 'inherit',
-    });
+    });*/
 
     cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   }
@@ -60,12 +67,6 @@ export function setup(buildPath: string, config: Config) {
 
 function checkPackageConfig(buildPath: string, cfg: any, pbemCfg: Config) {
   let dirty: boolean = false;
-
-  if (cfg.org_pbem === undefined
-      || cfg.org_pbem.version !== appVersion) {
-    dirty = true;
-    cfg.org_pbem = { version: appVersion };
-  }
 
   //Ensure game + ui packages are properly setup.
   function depCheck(src: any, dst: any) {

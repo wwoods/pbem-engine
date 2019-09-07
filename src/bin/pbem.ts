@@ -32,7 +32,9 @@ program
     const vue = require('../ui-app/vue/index');
     vue.setup(pbem_client_folder, config);
 
-    //TODO .gitignore build
+    if (!fs.existsSync(".gitignore")) {
+      fs.writeFileSync(".gitignore", "/build");
+    }
 
     execFileSync('npm', ['run', 'serve'], {
       cwd: pbem_client_folder,
