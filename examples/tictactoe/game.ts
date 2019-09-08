@@ -33,7 +33,7 @@ export namespace Settings {
     // Can be true for pass-and-play functionality.
     settings.turnPassAndPlay = false;
 
-    const s = pbem.game;
+    const s = settings.game;
     s.playerOneIsO = false;
   }
 
@@ -61,7 +61,7 @@ export interface GameState {
   playerSymbol: string[];
   playerWillWin?: number;
 }
-export type State = PbemState<GameState>;
+export type State = PbemState<GameSettings, GameState>;
 export namespace State {
   export function pbemInit(state: State): void {
     const g = state.game;
@@ -72,7 +72,7 @@ export namespace State {
     g.playerSymbol = settings.playerOneIsO ? ['o', 'x'] : ['x', 'o'];
   }
 
-  export async function pbemTriggerCheck(state: Readonly<State>): void {
+  export async function pbemTriggerCheck(state: Readonly<State>): Promise<void> {
     if (state.game.playerWillWin === undefined) {
       //state.game === this
       const g = state.game;
@@ -106,7 +106,7 @@ export namespace State {
 
       if (p !== ' ') {
         const player = g.playerSymbol.indexOf(p);
-        await PbemState.action(state, Action.willWin.create(player));
+        //TODO await PbemState.action(state, Action.WillWin.create(player));
       }
     }
   }
@@ -114,8 +114,8 @@ export namespace State {
   export async function pbemTurnEnd(state: Readonly<State>) {
     if (state.game.playerWillWin !== undefined) {
       const player = state.game.playerWillWin;
-      await PbemState.action(PbemAction.multi.create([
-          Action.threeInARow.create(player),
+      await PbemState.action(state, PbemAction.Multi.create([
+          //Action.ThreeInARow.create(player),
           PbemAction.GameEnd.create(),
       ]));
     }
@@ -139,22 +139,32 @@ export namespace State {
  * responsible for ensuring that players only move their own pieces.
  *
  */
-//export interface Action implements PbemAction.Interface {
-//  type: IPbemAction.type | 'play' | 'threeInARow' | 'willWin';
-//  playerOrigin?: number;
-//}
-export type Action = PbemAction.default | Action.play | Action.threeInARow | Action.willWin;
+export type Action = PbemAction.Builtins | Action.Play; //TODO | Action.ThreeInARow | Action.WillWin;
 export namespace Action {
   /// Make a move
-  export type play = PbemAction<'play', {
+  export type Play = PbemAction<'Play', {
     space: number,
   }>;
-  export namespace play {
+  export const Play: PbemAction.Hooks<State, Play> = {
+    create(player: number, space: number) {
+      return {
+        type: 'Play',
+        playerOriginatedz: player,
+        game: {
+          space: space,
+        },
+      };
+    },
+    pbemValidate(state, action) {
+    },
+  };
+  /*
+  export namespace Play2 {
     export function create(player: number, space: number): play {
-      return PbemAction.create('play', player, {space});
+      return PbemAction.create('Play', player, {space});
     }
 
-    export function pbemValidate(state: Readonly<State>, action: Readonly<play>): any {
+    export function pbemValidate(state: Readonly<State>, action: Readonly<Play>): any {
       if ([0, 1].indexOf(action.playerOrigin) === -1) return 'Bad player';
 
       // Tic-tac-toe only has one move per turn.
@@ -170,45 +180,42 @@ export namespace Action {
       // Record whatever's needed for a proper rollback.
     }
 
-    export function pbemForward(state: State, action: Readonly<play>) {
+    export function pbemForward(state: State, action: Readonly<Play>) {
       state.game.board[action.game.space] = state.game.playerSymbol[action.playerOrigin];
     }
 
-    export function pbemValidateBackward(state: Readonly<State>, action: Readonly<play>): any {
+    export function pbemValidateBackward(state: Readonly<State>, action: Readonly<Play>): any {
     }
 
-    export function pbemBackward(state: State, action: Readonly<play>): any {
+    export function pbemBackward(state: State, action: Readonly<Play>): any {
       state.game.board[action.game.space] = ' ';
     }
-  }
+  }*/
 
-
+    /*
   /// Will win
-  export interface willWin extends Action {
-    player: number;
-  }
+  export type willWin = PbemAction<'willWin', {
+    player: number,
+  }>;
   export interface willWin {
     export function create(player: number): willWin {
-      return {
-        type: 'willWin',
-        player: player,
-      };
+      return PbemAction.create('willWin', null, {player});
     }
 
-    export function pbemValidate(pbem: PbemState<state>, action: willWin): void {
+    export function pbemValidate(state: Readonly<State>, action: willWin): void {
       //TODO ensure this player has three in a row.
 
       if (action.playerOrigin !== undefined) return "Unauthorized";
 
-      if (pbem.game.playerWillWin !== undefined) return "Winner already set.";
+      if (state.game.playerWillWin !== undefined) return "Winner already set.";
     }
 
-    export function pbemForward(pbem: PbemState.Writable<State>, action: willWin): void {
-      pbem.game.playerWillWin = action.player;
+    export function pbemForward(state: State, action: willWin): void {
+      state.game.playerWillWin = action.player;
     }
 
-    export function pbemBackward(pbem: PbemState.Writable<State>, action: willWin): void {
-      pbem.game.playerWillWin = undefined;
+    export function pbemBackward(state: State, action: willWin): void {
+      state.game.playerWillWin = undefined;
     }
   }
 
@@ -236,6 +243,6 @@ export namespace Action {
     export  function pbemBackward(pbem: PbemState.Writable<State>, action: threeInARow): void {
       pbem.player[action.player].score -= 1;
     }
-  }
+  }*/
 }
 
