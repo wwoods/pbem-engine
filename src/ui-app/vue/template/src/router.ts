@@ -3,6 +3,10 @@ import Router from 'vue-router';
 
 Vue.use(Router);
 
+// TODO rather than hard-coded importing self's components, allow apps to
+// override the default layouts by checking for existence of e.g.
+// @/ui/pbem/Menu.
+
 export default new Router({
   mode: 'history',
   base: process.env.BASE_URL,
