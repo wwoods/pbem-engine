@@ -6,10 +6,18 @@
 <script lang="ts">
 import Vue from 'vue';
 
+import {ServerLocal} from 'pbem-engine/lib/server/local';
+import {PbemSettings} from 'pbem-engine/lib/game';
+import {Settings} from '@/game';
+
 export default Vue.extend({
   methods: {
-    createLocal() {
-      this.$router.push({name: 'staging', params: {id: 'lTODO'}});
+    async createLocal() {
+      console.log(this);
+      await this.$pbemServer.createLocal(async (s: Settings) => {
+        //Local can overwrite ID.
+        s.gameId = "TODO";
+      });
     },
   },
 });

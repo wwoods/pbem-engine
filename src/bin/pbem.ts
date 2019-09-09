@@ -28,6 +28,7 @@ program
   .command('serve')
   .description('serve the pbem-engine application in development mode')
   .option('--clean', 'do not re-use existing build')
+  .option('--vue-debug', "debug pbem-engine's vue template")
   .action((cmd: any) => {
     const cfg = './pbem-config.json';
     assert(fs.existsSync(cfg), `No such file: ${cfg}`);
@@ -60,7 +61,12 @@ program
       if (srcStat.isFile()) {
         if (!fs.existsSync(dst)
             || fs.statSync(dst).mtimeMs + epsilonMs < srcStat.mtimeMs) {
-          fsExtra.copySync(src, dst, {preserveTimestamps: true});
+          try {
+            fsExtra.copySync(src, dst, {preserveTimestamps: true});
+          }
+          catch (e) {
+            console.error(e);
+          }
         }
       }
       else if (srcStat.isDirectory()) {
@@ -84,6 +90,26 @@ program
         const updateWatched = () => {
           if (updates.get(fpath) === now && fs.existsSync(fpath)) {
             update(fpath, path.join(pbem_client_src_folder, fpath));
+          }
+        };
+        setTimeout(updateWatched, 10);
+      }));
+    }
+    if (cmd.opts().vueDebug) {
+      const templateSrc = path.join(__filename, '../../../src/ui-app/vue/template/src');
+      watchers.push(recursiveWatch(templateSrc, (fpath: string) => {
+        const now = Date.now();
+        updates.set(fpath, now);
+        const updateWatched = () => {
+          if (updates.get(fpath) === now && fs.existsSync(fpath)) {
+            const rel = path.relative(templateSrc, fpath);
+            try {
+              fsExtra.copySync(fpath, path.join(pbem_client_src_folder, rel), {
+                  preserveTimestamps: true});
+            }
+            catch (e) {
+              console.error(e);
+            }
           }
         };
         setTimeout(updateWatched, 10);

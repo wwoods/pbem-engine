@@ -1,17 +1,26 @@
 <template lang="pug">
 .game
-  table
+  table(style="margin-left: auto; margin-right: auto;")
     tr(v-for="j of [0, 1, 2]")
-      td(v-for="i of [0, 1, 2]" style="border: solid 1px #000;" @click="$pbem.playerAction('play', j*3 + i)")
-        span {{state.game.board[j * 3 + i]}}
+      td(v-for="i of [0, 1, 2]" style="border: solid 1px #000;" @click="$pbem.action('Play', j*3 + i)")
+        span {{$pbem.state.game.board[j * 3 + i]}}
 
-  div(v-if="state.game.playerWillWin !== undefined") {{state.game.playerWillWin}} will win!
+  div(v-if="$pbem.hasPending") Waiting on network...
+  div {{$pbem.state.settings.players.length}} players in game.
+  div(v-if="$pbem.state.game.playerWillWin !== undefined") {{$pbem.state.game.playerWillWin}} will win!
   div
-    input(type="button" value="End turn" @click="$pbem.playerEndTurn")
+    input(type="button" value="End turn" @click="$pbem.action('PbemAction.EndTurn')")
   span TODO: gsap animation example.
-  //- a(@click="$pbem.playerAction('play', i * 3 + j)") Click to play
-  //- Equivalent to $pbem.action($pbem.game.Action.play.create($pbem.state.playerActive, j * 3 + i))
 </template>
+
+<style lang="scss">
+  .game > table {
+    td {
+      width: 2em;
+      height: 2em;
+    }
+  }
+</style>
 
 <script lang="ts">
 import Vue from 'vue';
@@ -19,8 +28,5 @@ import Vue from 'vue';
 import {State} from '@/game';
 
 export default Vue.extend({
-  props: {
-    state: Object as () => State,
-  },
 });
 </script>

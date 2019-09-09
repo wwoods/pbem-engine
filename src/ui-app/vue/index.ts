@@ -10,6 +10,8 @@ import {fileURLToPath} from 'url';
 //Remember, path relative to typescript-built "lib" folder.
 const pbemVueTemplate = path.join(path.dirname(__filename), "../../../src/ui-app/vue/template");
 
+const pbemEnginePackage = path.join(path.dirname(__filename), "../../../");
+
 /*
 const vueAppConfig = {
   "useConfigFiles": false,
@@ -50,12 +52,13 @@ export function setup(buildPath: string, config: Config) {
 
     fsExtra.copySync(pbemVueTemplate, buildPath);
 
-    /**
-    const proj = path.basename(buildPath);
-    execFileSync('vue', ['create', '-i', JSON.stringify(vueAppConfig), proj], {
-        cwd: cwd,
-        stdio: 'inherit',
-    });*/
+    //Make pbem-engine available, which the template requires but we want to
+    //make sure that the version installed for the build matches the local
+    //version.
+    execFileSync('npm', ['install', pbemEnginePackage], {
+      cwd: buildPath,
+      stdio: 'inherit',
+    });
 
     cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   }
