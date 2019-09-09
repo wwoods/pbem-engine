@@ -1,5 +1,5 @@
 
-import {_Server, ServerStagingResponse, ServerGameIdPrefixes} from './common';
+import {_Server, ServerError, ServerStagingResponse, ServerGameIdPrefixes} from './common';
 
 import {_PbemSettings, _PbemState} from '../game';
 
@@ -33,7 +33,7 @@ export class _ServerLocal implements _Server {
   async stagingLoad<Settings extends _PbemSettings>(gameId: string) {
     const gi = this.games.get(gameId);
     if (gi === undefined) {
-      throw new Error('No such game');
+      throw new ServerError.NoSuchGameError(gameId);
     }
 
     return {
@@ -49,7 +49,7 @@ export class _ServerLocal implements _Server {
 
     const gi = this.games.get(gameId);
     if (gi === undefined) {
-      throw new Error('No such game');
+      throw new ServerError.NoSuchGameError(gameId);
     }
 
     if (gi.phase !== 'staging') {
@@ -65,11 +65,11 @@ export class _ServerLocal implements _Server {
   async gameLoad<State extends _PbemState>(gameId: string) {
     const gi = this.games.get(gameId);
     if (gi === undefined) {
-      throw new Error('No such game');
+      throw new ServerError.NoSuchGameError(gameId);
     }
 
     if (gi.phase === 'staging') {
-      throw new Error('Game in staging.');
+      throw new ServerError.GameIsStagingError(gameId);
     }
 
     return gi.state as State;

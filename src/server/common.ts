@@ -5,6 +5,29 @@ export const ServerGameIdPrefixes = {
   Local: 'l-',
 };
 
+export namespace ServerError {
+  export class ServerError extends Error {
+    constructor(message?: string) {
+      super(message);
+
+      // https://stackoverflow.com/a/48342359/160205
+      const actualProto = new.target.prototype;
+      if (Object.setPrototypeOf) Object.setPrototypeOf(this, actualProto);
+      else (this as any).__proto__ = actualProto;
+    }
+  }
+  export class GameIsStagingError extends ServerError {
+    constructor(gameId: string) {
+      super(`Game is staging: ${gameId}`);
+    }
+  }
+  export class NoSuchGameError extends ServerError {
+    constructor(gameId: string) {
+      super(`No such game: ${gameId}`);
+    }
+  }
+}
+
 export interface ServerStagingResponse<Settings> {
   isPastStaging: boolean;
   settings: Settings;

@@ -1,13 +1,15 @@
 
 import assert from 'assert';
 
-import {_PbemAction, _PbemSettings, _PbemState} from '../game';
-import {ServerStagingResponse} from '../server/common';
+import {_PbemAction, _PbemSettings, _PbemState, PbemPlayerView} from '../game';
+import {ServerError, ServerStagingResponse} from '../server/common';
 
 import {CommCommon} from './common';
 import {IdPrefix, CommTypes} from './factory';
 
-export class PlayerView<State> {
+export {ServerError} from '../server/common';
+
+export class PlayerView<State extends _PbemState> implements PbemPlayerView<State> {
   // This class is exposed to end-user code, so "playerId" might be more
   // intuitive than just "id".
   playerId: number;

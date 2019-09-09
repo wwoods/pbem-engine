@@ -9,7 +9,7 @@
 <script lang="ts">
 import Vue from 'vue';
 
-import {ServerLink} from 'pbem-engine/lib/comm';
+import {ServerError, ServerLink} from 'pbem-engine/lib/comm';
 import {Settings} from '@/game';
 
 export default Vue.extend({
@@ -35,8 +35,19 @@ export default Vue.extend({
   methods: {
     async loadSettings() {
       this.settings = undefined;
-      const {settings, isPastStaging} = await ServerLink.stagingLoad<Settings>(
-          this.$route.params.id);
+      let settings: Settings | undefined, isPastStaging: boolean | undefined;
+      try {
+        ({settings, isPastStaging} = await ServerLink.stagingLoad<Settings>(
+            this.$route.params.id));
+      }
+      catch (e) {
+        if (e instanceof ServerError.NoSuchGameError) {
+          this.$router.replace({ name: 'menu' });
+        }
+        else {
+          throw e;
+        }
+      }
       if (isPastStaging) {
         this.$router.replace({name: 'game', params: {id: this.$route.params.id}});
       }
