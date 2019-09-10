@@ -3,7 +3,7 @@ import assert from 'assert';
 
 import {CommCommon} from './common';
 
-import {_PbemSettings, _PbemState} from '../game';
+import {_PbemSettings, _PbemState, _PbemAction} from '../game';
 import {ServerLocal, ServerStagingResponse} from '../server/local';
 
 export class CommLocal implements CommCommon {
@@ -18,6 +18,10 @@ export class CommLocal implements CommCommon {
 
   async close(): Promise<void> {
     //Nothing to do, all was stored locally.
+  }
+
+  async gameActions(actions: _PbemAction[]) {
+    await this._server.gameActions(this.gameId, actions);
   }
 
   async stagingCreate<Settings extends _PbemSettings>(s: Settings): Promise<void> {

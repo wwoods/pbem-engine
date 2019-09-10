@@ -9,7 +9,7 @@
   div {{$pbem.state.settings.players.length}} players in game.
   div(v-if="$pbem.state.game.playerWillWin !== undefined") {{$pbem.state.game.playerWillWin}} will win!
   div
-    input(type="button" value="End turn" @click="$pbem.action('PbemAction.EndTurn')")
+    input(type="button" value="End turn" @click="$pbem.action('PbemAction.TurnEnd')")
   span TODO: gsap animation example.
 </template>
 
@@ -24,8 +24,6 @@
 
 <script lang="ts">
 import Vue from 'vue';
-
-import {State} from '@/game';
 
 export default Vue.extend({
 });

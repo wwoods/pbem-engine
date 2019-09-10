@@ -12,7 +12,7 @@ const fs = require('fs');
 const fsExtra = require('fs-extra');
 const path = require('path');
 const program = require('commander');
-const recursiveWatch = require('recursive-watch');
+const recursiveWatch = require('../recursive-watch');
 const rimraf = require('rimraf');
 
 const pbem_folder = "build";

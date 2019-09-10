@@ -55,7 +55,7 @@ export function setup(buildPath: string, config: Config) {
     //Make pbem-engine available, which the template requires but we want to
     //make sure that the version installed for the build matches the local
     //version.
-    execFileSync('npm', ['install', pbemEnginePackage], {
+    execFileSync('npm', ['install', '--no-audit', pbemEnginePackage], {
       cwd: buildPath,
       stdio: 'inherit',
     });

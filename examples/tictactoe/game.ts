@@ -12,7 +12,7 @@
  * refer to one another by ID.
  * */
 
-import {PbemSettings, PbemState, PbemAction, Pbem} from 'pbem-engine/lib/game';
+import {PbemError, PbemSettings, PbemState, PbemAction} from 'pbem-engine/lib/game';
 // TODO PbemState.Writable = Readonly<PbemState>
 
 /** User-defined settings - everything non-player-related required for
@@ -23,7 +23,7 @@ export interface GameSettings {
 export type Settings = PbemSettings<GameSettings>;
 export namespace Settings {
   export const Hooks: PbemSettings.Hooks<Settings> = {
-    async pbemInit(settings) {
+    init(settings) {
       settings.playersValid = [2];
       // Can use version field to retain cross-version compatibility; note that
       // this version is also used to ensure players are using the same version
@@ -37,10 +37,10 @@ export namespace Settings {
       const s = settings.game;
       s.playerOneIsO = false;
     },
-    async pbemValidate(settings) {
+    validate(settings) {
       if (settings.players.length !== 2) {
         // Anything not-undefined returned is routed to the UI.
-        throw Error("Not enough players.");
+        throw new PbemError("Not enough players.");
       }
     },
   };
@@ -66,7 +66,8 @@ export interface GameState {
 export type State = PbemState<GameSettings, GameState>;
 export namespace State {
   export const Hooks: PbemState.Hooks<State, Action> = {
-    async pbemInit(state) {
+    init(state) {
+      console.log('RAN INIT HOOK');
       const g = state.game;
       g.board = [];
       for (let i = 0; i < 9; i++) g.board.push(' ');
@@ -74,7 +75,7 @@ export namespace State {
       const settings = state.settings.game;
       g.playerSymbol = settings.playerOneIsO ? ['o', 'x'] : ['x', 'o'];
     },
-    async pbemTriggerCheck(pbem, action) {
+    triggerCheck(pbem, sinceAction) {
       const state = pbem.state;
       if (state.game.playerWillWin === undefined) {
         //state.game === this
@@ -98,25 +99,25 @@ export namespace State {
         }
 
         {
-          const a = g.board[5];
+          const a = g.board[4];
           if (a !== ' '
               && (
                 a === g.board[0] && a === g.board[8]
-                || a === g.board[3] && a === g.board[6])) {
+                || a === g.board[2] && a === g.board[6])) {
             p = a;
           }
         }
 
         if (p !== ' ') {
           const player = g.playerSymbol.indexOf(p);
-          await pbem.action('WillWin', player);
+          pbem.action('WillWin', player);
         }
       }
     },
-    async pbemTurnEnd(pbem) {
+    roundEnd(pbem) {
       const player = pbem.state.game.playerWillWin;
       if (player !== undefined) {
-        await pbem.actionMulti(
+        pbem.actionMulti(
             ['ThreeInARow', player],
             ['PbemAction.GameEnd'],
         );
@@ -142,7 +143,7 @@ export namespace State {
  * responsible for ensuring that players only move their own pieces.
  *
  */
-export type Action = PbemAction.Types.Builtins | Action.Types.Play; // TODO | Action.ThreeInARow | Action.WillWin;
+export type Action = PbemAction.Types.Builtins | Action.Types.Play | Action.Types.WillWin | Action.Types.ThreeInARow;
 export namespace Action {
   export namespace Types {
     /// Make a move
@@ -150,104 +151,80 @@ export namespace Action {
       space: number,
     }>;
     export const Play: PbemAction.Hooks<State, Play> = {
-      create(player: number, space: number) {
-        return {
-          type: 'Play',
-          playerOriginatedz: player,
-          game: {
-            space: space,
-          },
-        };
+      init(action, space: number) {
+        action.game.space = space;
       },
-      pbemValidate(state, action) {
-      },
-    };
-    /*
-    export namespace Play2 {
-      export function create(player: number, space: number): play {
-        return PbemAction.create('Play', player, {space});
-      }
+      validate(state, action) {
+        if ([0, 1].indexOf(action.playerOrigin) === -1) throw new PbemError('Bad player');
 
-      export function pbemValidate(state: Readonly<State>, action: Readonly<Play>): any {
-        if ([0, 1].indexOf(action.playerOrigin) === -1) return 'Bad player';
+        if (action.game.space === undefined) throw new PbemError('Undefined space?');
+        if (action.game.space < 0 || action.game.space >= 9) throw new PbemError(`Out of bounds: ${action.game.space}`);
 
         // Tic-tac-toe only has one move per turn.
         // TODO actions[] should not be a list of player actions... computed
         // property?  No, using interfaces... PbemState.playerActionCount()?
-        if (state.turn.actions[action.playerOrigin].length > 0) return 'No free action';
+        const actions = PbemState.getRoundActions(state)
+            .filter((x) => !x.actionGrouped && x.playerOrigin === action.playerOrigin)
+            ;
+        if (actions.length > 0) throw new PbemError('No free action');
 
         // Cannot play in occupied space.
-        if (state.game.board[action.game.space] !== ' ') return 'Space taken';
-      }
+        const sym = state.game.board[action.game.space];
+        if (sym !== ' ') throw new PbemError(`Space taken: ${sym}`);
+      },
+      forward(state, action) {
+        // IMPORTANT: cannot do state.game.board[action.game.space] = ...
+        // See e.g. Vue's documentation on the matter here:
+        // https://vuejs.org/v2/guide/reactivity.html#Change-Detection-Caveats
+        // Instead, use splice.
+        state.game.board.splice(action.game.space, 1, state.game.playerSymbol[action.playerOrigin]);
+      },
+      backward(state, action) {
+        state.game.board.splice(action.game.space, 1, ' ');
+      },
+    };
 
-      export function pbemSetupBackward(State: Readonly<State>, action: play) {
-        // Record whatever's needed for a proper rollback.
-      }
 
-      export function pbemForward(state: State, action: Readonly<Play>) {
-        state.game.board[action.game.space] = state.game.playerSymbol[action.playerOrigin];
-      }
-
-      export function pbemValidateBackward(state: Readonly<State>, action: Readonly<Play>): any {
-      }
-
-      export function pbemBackward(state: State, action: Readonly<Play>): any {
-        state.game.board[action.game.space] = ' ';
-      }
-    }*/
-
-      /*
-    /// Will win
-    export type willWin = PbemAction<'willWin', {
+    export type WillWin = PbemAction<'WillWin', {
       player: number,
     }>;
-    export interface willWin {
-      export function create(player: number): willWin {
-        return PbemAction.create('willWin', null, {player});
-      }
-
-      export function pbemValidate(state: Readonly<State>, action: willWin): void {
-        //TODO ensure this player has three in a row.
-
-        if (action.playerOrigin !== undefined) return "Unauthorized";
+    export const WillWin: PbemAction.Hooks<State, WillWin> = {
+      init(action, player: number) {
+        action.game.player = player;
+      },
+      validate(state, action) {
+        if (action.playerOrigin !== -1) throw new PbemError("Unauthorized");
 
         if (state.game.playerWillWin !== undefined) return "Winner already set.";
-      }
-
-      export function pbemForward(state: State, action: willWin): void {
-        state.game.playerWillWin = action.player;
-      }
-
-      export function pbemBackward(state: State, action: willWin): void {
+      },
+      forward(state, action) {
+        state.game.playerWillWin = action.game.player;
+      },
+      backward(state, action) {
         state.game.playerWillWin = undefined;
-      }
-    }
+      },
+    };
 
 
     /// Three in a row
-    export interface threeInARow extends Action {
+    export type ThreeInARow = PbemAction<'ThreeInARow', {
       player: number;
-    }
-    export namespace threeInARow {
-      export function create(player: number): threeInARow {
-        return {
-          type: 'threeInARow',
-          player: player,
-        };
-      }
-
-      export function pbemValidate(pbem: PbemState<State>, action: threeInARow): void {
-        if (action.playerOrigin !== undefined) return "Unauthorized";
-      }
-
-      export function pbemForward(pbem: PbemState.Writable<State>, action: threeInARow): void {
-        pbem.player[action.player].score += 1;
-      }
-
-      export  function pbemBackward(pbem: PbemState.Writable<State>, action: threeInARow): void {
-        pbem.player[action.player].score -= 1;
-      }
-    }*/
+    }>;
+    export const ThreeInARow: PbemAction.Hooks<State, ThreeInARow> = {
+      init(action, player: number) {
+        action.game.player = player;
+      },
+      validate(state, action) {
+        if (action.playerOrigin !== -1) throw new PbemError("Unauthorized");
+      },
+      forward(state, action) {
+        // TODO should be state.players... state.settings shouldn't change?
+        state.settings.players[action.game.player].score += 1;
+      },
+      backward(state, action) {
+        state.settings.players[action.game.player].score -= 1;
+      },
+    };
   }
 }
 

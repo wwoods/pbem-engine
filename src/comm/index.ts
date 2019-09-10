@@ -1,13 +1,12 @@
 
 import assert from 'assert';
 
-import {_PbemAction, _PbemSettings, _PbemState, PbemPlayerView} from '../game';
+import {_PbemAction, _PbemSettings, _PbemState, PbemPlayerView, PbemAction, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
+export {ServerError} from '../server/common';
 
 import {CommCommon} from './common';
 import {IdPrefix, CommTypes} from './factory';
-
-export {ServerError} from '../server/common';
 
 export class PlayerView<State extends _PbemState> implements PbemPlayerView<State> {
   // This class is exposed to end-user code, so "playerId" might be more
@@ -26,9 +25,17 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
   }
 
   async action(type: string, ...args: any[]) {
+    return this.actionMulti([type, ...args]);
   }
 
   async actionMulti(...actions: Array<[string, ...any[]]>) {
+    const objs = [];
+    for (const a of actions) {
+      const act = _PbemAction.create(...a);
+      act.playerOrigin = this.playerId;
+      objs.push(act);
+    }
+    await ServerLink.gameActions(objs);
   }
 }
 
@@ -44,6 +51,16 @@ export class _ServerLink {
   _comm?: CommCommon;
   _settings?: _PbemSettings;
   _state?: _PbemState;
+
+  async gameActions(action: _PbemAction[]) {
+    const comm = this._comm;
+    if (comm === undefined) {
+      throw new ServerError.ServerError('Bad comm');
+    }
+    assert(comm.gameId !== undefined);
+    await comm.gameActions(action);
+  }
+
 
   async gameLoad<State extends _PbemState>(id: string): Promise<State> {
     await this._commSwitch(id);
@@ -119,8 +136,8 @@ export class _ServerLink {
 
 
   async _stagingCreateSettings<Settings extends _PbemSettings>(init?: {(s: Settings): Promise<void>}): Promise<Settings> {
-    const s = await _PbemSettings.create() as Settings;
-    await _PbemSettings.Hooks.pbemInit(s);
+    const s = _PbemSettings.create() as Settings;
+    _PbemSettings.Hooks.init(s);
     init !== undefined && await init(s);
     return s;
   }

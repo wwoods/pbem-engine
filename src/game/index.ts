@@ -1,4 +1,7 @@
 
+import {PbemError} from '../error';
+export {PbemError} from '../error';
+
 export interface PbemPlayer {
   name: string;
   score: number;
@@ -7,24 +10,24 @@ export interface PbemPlayer {
 
 
 export interface _PbemPlayerView {
-  playerId: number;
+  playerId: number;  // Will be -1 for PbemServerView.
   state: Readonly<any>;
-
-  readonly hasPending: boolean;
-
-  action(type: string, ...args: any[]): Promise<void>;
-  actionMulti(...actions: Array<[string, ...any[]]>): Promise<void>;
 }
 export interface PbemPlayerView<State extends _PbemState> extends _PbemPlayerView {
   state: Readonly<State>;
+
+  readonly hasPending: boolean;
+
+  //Server events happen locally, and are thus not asynchronous.
+  action(type: string, ...args: any[]): Promise<void>;
+  actionMulti(...actions: Array<[string, ...any[]]>): Promise<void>;
 }
+export interface PbemServerView<State extends _PbemState> extends _PbemPlayerView {
+  state: Readonly<State>;
 
-
-import {ServerLink as _ServerLink} from '../comm';
-export function Pbem<State extends _PbemState>(state: State) {
-  // TODO this is broken on server-side for multiple games at the moment.
-  // Should not rely on ServerLink
-  return _ServerLink.getActivePlayerView<State>();
+  //Server events happen locally, and are thus not asynchronous.
+  action(type: string, ...args: any[]): void;
+  actionMulti(...actions: Array<[string, ...any[]]>): void;
 }
 
 
@@ -43,7 +46,7 @@ export interface _PbemSettings {
 export namespace _PbemSettings {
   /** Initialize to sane defaults.  Most should be overridden by game code.
    * */
-  export async function create(): Promise<_PbemSettings> {
+  export function create(): _PbemSettings {
     const settings = {} as _PbemSettings;
     settings.version = 0;
     settings.playersValid = [2];
@@ -51,14 +54,14 @@ export namespace _PbemSettings {
     settings.turnSimultaneous = true;
     settings.turnPassAndPlay = true;
 
-    // Will always be populated by user Settings.pbemInit().
+    // Will always be populated by user Settings.Hooks.init().
     settings.game = {};
 
     return settings;
   }
 
   export const Hooks: PbemSettings.Hooks<_PbemSettings> = {
-    async pbemInit(settings) {
+    init(settings) {
       //Already done in no-argument create()
     },
   };
@@ -69,25 +72,51 @@ export interface PbemSettings<GameSettings> extends _PbemSettings {
 }
 export namespace PbemSettings {
   export interface Hooks<Settings> {
-    pbemInit: {(settings: Settings): Promise<void>},
-    pbemValidate?: {(settings: Readonly<Settings>): Promise<void>},
+    init: {(settings: Settings): void},
+    validate?: {(settings: Readonly<Settings>): void},
   }
 }
 
 
 export interface _PbemState {
+  actions: _PbemAction[];
   settings: _PbemSettings;
   game: any;
+  round: number;
+  turnEnded: boolean[];
 }
 export namespace _PbemState {
   export async function create<Settings extends _PbemSettings>(settings: Settings) {
     const s: _PbemState = {
+      actions: [],
       settings,
       game: {},
+      round: 1,
+      turnEnded: [],
     };
-    await _GameHooks.State!.pbemInit(s);
+    for (let i = 0, m = settings.players.length; i < m; i++) {
+      s.turnEnded.push(false);
+    }
+    await _GameHooks.State!.init(s);
     return s;
   }
+
+  export const Hooks: PbemState.Hooks<_PbemState, _PbemAction> = {
+    // Just to keep typescript happy.
+    init(state) {},
+    triggerCheck(pbem, sinceActionIndex) {
+      const turnEnded = pbem.state.turnEnded;
+      if (turnEnded.reduce((x, y) => x && y, true)) {
+        // All ready - advance round.
+        pbem.action('PbemAction.RoundEnd');
+
+        const re = _GameHooks.State!.roundEnd;
+        if (re !== undefined) re(pbem);
+
+        pbem.action('PbemAction.RoundStart');
+      }
+    },
+  };
 }
 
 export interface PbemState<GameSettings, GameState> extends _PbemState {
@@ -97,53 +126,164 @@ export interface PbemState<GameSettings, GameState> extends _PbemState {
 export namespace PbemState {
   export interface Hooks<State extends _PbemState, Action extends _PbemAction> {
     /** Create the game by initializing state.game appropriately. */
-    pbemInit: {(state: State): Promise<void>};
+    init: {(state: State): void};
     /** Convert a loaded game, if necessary. */
-    pbemLoad?: {(state: State): Promise<void>};
+    load?: {(state: State): void};
     /** Check for triggers after any action. */
-    pbemTriggerCheck?: {(pbem: PbemPlayerView<State>, action: Readonly<Action>): Promise<void>};
-    /** Do something at end of turn (actions added are added before the true
-     * PbemAction.EndTurn action. */
-    pbemTurnEnd?: {(pbem: PbemPlayerView<State>): Promise<void>};
+    triggerCheck?: {(pbem: PbemServerView<State>, sinceActionIndex: number): void};
+    /** Do something at end of round (actions added are added before the
+     * PbemAction.NewRound action). */
+    roundEnd?: {(pbem: PbemServerView<State>): void};
+  }
+
+
+  export function getRoundActions<State extends _PbemState>(state: State) {
+    const act = state.actions;
+    let i = act.length;
+    while (i > 0) {
+      --i;
+      if (act[i].type === 'PbemAction.RoundStart') {
+        break;
+      }
+    }
+    return act.slice(i + 1);
   }
 }
 
 
 export interface _PbemAction {
   type: any;
-  playerOrigin?: number;
+  playerOrigin: number;
+  actionId: string;
+  actionGrouped: boolean;
   game: any;
 }
+export namespace _PbemAction {
+  let _actionId: number = 0;
+  export function create(type: string, ...args: any[]): _PbemAction {
+    const a: _PbemAction = {
+      type,
+      playerOrigin: -1,
+      actionId: `l${_actionId}`,
+      actionGrouped: false,
+      game: {},
+    };
+    _actionId++;
+    const ns = _PbemAction.resolve(type);
+    if (ns.init !== undefined) {
+      ns.init(a, ...args);
+    }
+    else if (args.length > 0) {
+      throw new PbemError(`No PbemAction.Hooks.init() for ${type}, but args`);
+    }
+    return a;
+  }
+  export function resolve(type: string): PbemAction.Hooks<_PbemState, _PbemAction> {
+    let ns: any = undefined;
+    if (type.startsWith('PbemAction.')) {
+      ns = (PbemAction.Types as any)[type.slice(11)];
+    }
+    else {
+      ns = (_GameActionTypes as any)[type];
+    }
+
+    if (ns === undefined) {
+      throw new PbemError(`Couldn't resolve ${type}`);
+    }
+
+    return ns as PbemAction.Hooks<_PbemState, _PbemAction>;
+  }
+}
+
 export interface PbemAction<GameActionType, GameAction> extends _PbemAction {
   type: GameActionType;
   game: GameAction;
 }
 export namespace PbemAction {
   export interface Hooks<State, Action> {
-    create: {(...args:any): Action};
-    pbemValidate?: {(state: State, action: Action): any};
+    // TODO ensure error if no init() specified but args were.
+    init?: {(action: Action, ...args:any): void};
+    validate?: {(state: Readonly<State>, action: Readonly<Action>): void};
+    setupBackward?: {(state: Readonly<State>, action: Action): void};
+    forward: {(state: State, action: Readonly<Action>): void};
+    validateBackward?: {(state: Readonly<State>, action: Readonly<Action>): void};
+    backward: {(state: State, action: Readonly<Action>): void};
   }
 
   export namespace Types {
-    export type Builtins = Multi;
+    export type Builtins = GameEnd | RoundEnd | RoundStart | TurnEnd;
 
     export type GameEnd = PbemAction<'PbemAction.GameEnd', {}>;
     export const GameEnd: Hooks<_PbemState, GameEnd> = {
-      create() {
-        return {
-          type: 'PbemAction.GameEnd',
-          game: {},
-        };
+      validate(state, action) {
+        if (action.playerOrigin >= 0) {
+          throw new PbemError('Must be server to end game');
+        }
+      },
+      forward(state, action) {
+        // TODO
+      },
+      backward(state, action) {
+        // TODO
       },
     };
 
-    export type Multi = PbemAction<'PbemAction.Multi', Array<_PbemAction>>;
-    export const Multi: Hooks<_PbemState, Multi> = {
-      create(args: Array<_PbemAction>) {
-        return {
-          type: 'PbemAction.Multi',
-          game: args,
-        };
+    export type RoundEnd = PbemAction<'PbemAction.RoundEnd', {
+      turnEnded?: boolean[],
+    }>;
+    export const RoundEnd: Hooks<_PbemState, RoundEnd> = {
+      validate(state, action) {
+        if (action.playerOrigin >= 0) {
+          throw new PbemError('Must be server to end round');
+        }
+      },
+      setupBackward(state, action) {
+        action.game.turnEnded = state.turnEnded.slice();
+      },
+      forward(state, action) {
+        state.round += 1;
+        state.turnEnded = state.turnEnded.map((x) => false);
+      },
+      backward(state, action) {
+        state.turnEnded = action.game.turnEnded!.slice();
+        state.round -= 1;
+      },
+    };
+
+    export type RoundStart = PbemAction<'PbemAction.RoundStart', {
+    }>;
+    export const RoundStart: Hooks<_PbemState, RoundStart> = {
+      validate(state, action) {
+        if (action.playerOrigin >= 0) {
+          throw new PbemError('Must be server to start round');
+        }
+      },
+      forward(state, action) {
+      },
+      backward(state, action) {
+      },
+    };
+
+    export type TurnEnd = PbemAction<'PbemAction.TurnEnd', {}>;
+    export const TurnEnd: Hooks<_PbemState, TurnEnd> = {
+      validate(state, action) {
+        if (action.playerOrigin < 0) {
+          throw new PbemError('Must be player to end turn');
+        }
+
+        if (state.turnEnded[action.playerOrigin]) {
+          throw new PbemError('Cannot end turn twice');
+        }
+
+        if (state.turnEnded.length <= action.playerOrigin) {
+          throw new PbemError('Ending turn of non-existent player?');
+        }
+      },
+      forward(state, action) {
+        state.turnEnded.splice(action.playerOrigin, 1, true);
+      },
+      backward(state, action) {
+        state.turnEnded.splice(action.playerOrigin, 1, false);
       },
     };
   }
