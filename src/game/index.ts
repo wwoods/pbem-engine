@@ -4,7 +4,6 @@ export {PbemError} from '../error';
 
 export interface PbemPlayer {
   name: string;
-  score: number;
   online: boolean;
 }
 
@@ -64,6 +63,12 @@ export namespace _PbemSettings {
     init(settings) {
       //Already done in no-argument create()
     },
+    validate(settings) {
+      const p = settings.players.length;
+      if (settings.playersValid.indexOf(p) < 0) {
+        throw new PbemError(`Unsupported number of players: ${p}`);
+      }
+    },
   };
 }
 
@@ -82,6 +87,7 @@ export interface _PbemState {
   actions: _PbemAction[];
   settings: _PbemSettings;
   game: any;
+  gameEnded: boolean;
   round: number;
   turnEnded: boolean[];
 }
@@ -91,6 +97,7 @@ export namespace _PbemState {
       actions: [],
       settings,
       game: {},
+      gameEnded: false,
       round: 1,
       turnEnded: [],
     };
@@ -113,7 +120,9 @@ export namespace _PbemState {
         const re = _GameHooks.State!.roundEnd;
         if (re !== undefined) re(pbem);
 
-        pbem.action('PbemAction.RoundStart');
+        if (!pbem.state.gameEnded) {
+          pbem.action('PbemAction.RoundStart');
+        }
       }
     },
   };
@@ -139,12 +148,12 @@ export namespace PbemState {
 
   export function getRoundActions<State extends _PbemState>(state: State) {
     const act = state.actions;
-    let i = act.length;
-    while (i > 0) {
-      --i;
+    let i = act.length - 1;
+    while (i >= 0) {
       if (act[i].type === 'PbemAction.RoundStart') {
         break;
       }
+      --i;
     }
     return act.slice(i + 1);
   }
@@ -221,10 +230,10 @@ export namespace PbemAction {
         }
       },
       forward(state, action) {
-        // TODO
+        state.gameEnded = true;
       },
       backward(state, action) {
-        // TODO
+        state.gameEnded = false;
       },
     };
 

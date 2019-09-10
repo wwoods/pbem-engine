@@ -2,6 +2,12 @@
   .pbem-staging
     div(v-if="settings === undefined") Loading...
     template(v-if="settings !== undefined")
+      div
+        div Players in game
+        ul
+          li(v-for="player of settings.players") {{player.name}}
+        input(type="button" value="Add Pass-and-Play player" @click="playerAddPnp")
+          
       pbem-staging-settings(:settings="settings")
       input(type="button" value="Start" @click="startGame")
 </template>
@@ -54,6 +60,11 @@ export default Vue.extend({
       else {
         this.settings = settings;
       }
+    },
+    playerAddPnp() {
+      const settings = this.settings;
+      if (settings === undefined) return;
+      settings.players.push({name: 'locally', online: true});
     },
     async startGame() {
       const settings = this.settings;

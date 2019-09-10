@@ -14,6 +14,7 @@ export default Vue.extend({
   data: function() {
     return {
       state: undefined as undefined | State,
+      pbem: undefined as undefined | any,
     };
   },
   watch: {
@@ -28,6 +29,9 @@ export default Vue.extend({
     async loadGame() {
       try {
         this.state = await ServerLink.gameLoad(this.$route.params.id);
+        // So that Vue is aware of the $pbem object,  bind it here to make
+        // it reactive.
+        this.pbem = this.$pbem;
       }
       catch (e) {
         const q = new ServerError.NoSuchGameError('hi');

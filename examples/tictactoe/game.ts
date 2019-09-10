@@ -60,6 +60,7 @@ export namespace Settings {
  * */
 export interface GameState {
   board: string[];
+  scores: number[];
   playerSymbol: string[];
   playerWillWin?: number;
 }
@@ -74,6 +75,11 @@ export namespace State {
 
       const settings = state.settings.game;
       g.playerSymbol = settings.playerOneIsO ? ['o', 'x'] : ['x', 'o'];
+
+      g.scores = [];
+      for (const p of state.settings.players) {
+        g.scores.push(0);
+      }
     },
     triggerCheck(pbem, sinceAction) {
       const state = pbem.state;
@@ -166,6 +172,7 @@ export namespace Action {
         const actions = PbemState.getRoundActions(state)
             .filter((x) => !x.actionGrouped && x.playerOrigin === action.playerOrigin)
             ;
+        console.log(actions);
         if (actions.length > 0) throw new PbemError('No free action');
 
         // Cannot play in occupied space.
@@ -218,11 +225,14 @@ export namespace Action {
         if (action.playerOrigin !== -1) throw new PbemError("Unauthorized");
       },
       forward(state, action) {
-        // TODO should be state.players... state.settings shouldn't change?
-        state.settings.players[action.game.player].score += 1;
+        const p = action.game.player;
+        const s = state.game.scores;
+        s.splice(p, 1, s[p] + 1);
       },
       backward(state, action) {
-        state.settings.players[action.game.player].score -= 1;
+        const p = action.game.player;
+        const s = state.game.scores;
+        s.splice(p, 1, s[p] - 1);
       },
     };
   }

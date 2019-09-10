@@ -1,7 +1,8 @@
 
 import {_Server, ServerError, ServerStagingResponse, ServerGameIdPrefixes} from './common';
 
-import {_PbemSettings, _PbemState, _PbemAction, _GameHooks, PbemServerView} from '../game';
+import {_PbemSettings, _PbemState, _PbemAction, _GameHooks, PbemError,
+  PbemServerView} from '../game';
 
 export type ServerStagingResponse<T> = ServerStagingResponse<T>;
 
@@ -58,6 +59,14 @@ export class _ServerLocal implements _Server {
       throw new ServerError.ServerError('Game already started');
     }
 
+    // Validate
+    _PbemSettings.Hooks.validate!(settings);
+    const hooks = _GameHooks.Settings!;
+    if (hooks.validate !== undefined) {
+      hooks.validate(settings);
+    }
+
+    // Start
     gi.state = await _PbemState.create(settings);
     gi.phase = 'game';
     delete gi.settings;
@@ -104,6 +113,8 @@ export class _ServerLocal implements _Server {
 
     try {
       for (const action of actions) {
+        if (state.gameEnded) throw new PbemError('Game already over');
+
         const hooks = _PbemAction.resolve(action.type);
         if (hooks.validate !== undefined) {
           hooks.validate(state, action);

@@ -1,22 +1,25 @@
 
 import assert from 'assert';
 
-import {_PbemAction, _PbemSettings, _PbemState, PbemPlayerView, PbemAction, _GameActionTypes} from '../game';
+import {_PbemAction, _PbemSettings, _PbemState, PbemPlayer, PbemPlayerView, PbemAction, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
 export {ServerError} from '../server/common';
 
 import {CommCommon} from './common';
 import {IdPrefix, CommTypes} from './factory';
 
+/** Note that for UI reactivity, all players share the same "PlayerView" object.
+ * Only the properties get changed.
+ * */
 export class PlayerView<State extends _PbemState> implements PbemPlayerView<State> {
   // This class is exposed to end-user code, so "playerId" might be more
   // intuitive than just "id".
   playerId: number;
   state: State;
 
-  constructor(id: number, state: State) {
-    this.playerId = id;
-    this.state = state;
+  constructor() {
+    this.playerId = -1;
+    this.state = ({} as any) as State;
   }
 
   get hasPending(): boolean {
@@ -45,8 +48,17 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
  * */
 export class _ServerLink {
   actionsPending: Array<_PbemAction> = [];
-  playerActive: number = -1;
-  playerViews: Array<PlayerView<_PbemState>> = [];
+  _localPlayerActive: number = -1;
+  localPlayerActive(newPlayer?: number) {
+    if (newPlayer !== undefined) {
+      this._localPlayerActive = newPlayer;
+      this.localPlayerView.playerId = newPlayer;
+      this.localPlayerView.state = this._state!;
+    }
+    return this._localPlayerActive;
+  }
+  localPlayers: Array<PbemPlayer> = [];
+  localPlayerView = new PlayerView<_PbemState>();
 
   _comm?: CommCommon;
   _settings?: _PbemSettings;
@@ -57,8 +69,20 @@ export class _ServerLink {
     if (comm === undefined) {
       throw new ServerError.ServerError('Bad comm');
     }
+    const s = this._state!;
+    const before = s.actions.length;
+
     assert(comm.gameId !== undefined);
     await comm.gameActions(action);
+
+    const roundStarted = s.actions.slice(before).filter((x) => x.type === 'PbemAction.RoundStart').length > 0;
+    if (roundStarted) {
+      this.localPlayerActive(0);
+    }
+    else if (s.turnEnded[this.localPlayerView.playerId]) {
+      this.localPlayerActive(
+          (this.localPlayerActive() + 1) % this.localPlayers.length);
+    }
   }
 
 
@@ -67,10 +91,8 @@ export class _ServerLink {
     this._settings = undefined;
     this._state = await this._comm!.gameLoad<State>();
     // TODO smarter player management
-    this.playerActive = 0;
-    for (let i = 0; i < 2; i++) {
-      this.playerViews.push(new PlayerView<_PbemState>(i, this._state));
-    }
+    this.localPlayers = this._state.settings.players;
+    this.localPlayerActive(0);
     return this._state! as State;
   }
 
@@ -99,10 +121,10 @@ export class _ServerLink {
   }
 
   getActivePlayerView<State extends _PbemState>(): PlayerView<State> | undefined {
-    if (this.playerActive < 0) {
+    if (this.localPlayerActive() < 0) {
       return undefined;
     }
-    return this.playerViews[this.playerActive] as PlayerView<State>;
+    return this.localPlayerView as PlayerView<State>;
   }
 
   async _commSwitch(id: string): Promise<void> {

@@ -6,7 +6,7 @@
         span {{$pbem.state.game.board[j * 3 + i]}}
 
   div(v-if="$pbem.hasPending") Waiting on network...
-  div {{$pbem.state.settings.players.length}} players in game.
+  div {{$pbem.state.settings.players.length}} players in game.  {{$pbem.playerId}} is active.
   div(v-if="$pbem.state.game.playerWillWin !== undefined") {{$pbem.state.game.playerWillWin}} will win!
   div
     input(type="button" value="End turn" @click="$pbem.action('PbemAction.TurnEnd')")
