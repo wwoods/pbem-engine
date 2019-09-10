@@ -1,7 +1,6 @@
 // Originally from https://github.com/mafintosh/recursive-watch/blob/master/index.js
-// But, that version only called watch once, so I've modified it to not check
-// for same-ness.
-// TODO also check queue?  Or maybe it's my code, hm.
+// But, that version only called watch once when watching a single file which
+// is overwritten, so I've modified it for my own purposes.
 
 var os = require('os')
 var fs = require('fs')
@@ -34,10 +33,14 @@ function watch (name, onchange) {
 }
 
 function watchFile (filename, onchange) {
-  var prev = null
-  var prevTime = 0
-
-  var w = fs.watch(filename, function () {
+  // This function was originally wrong.  If using an editor like VIM, which
+  // replaces the whole file, then fs.watch() will expire after the first
+  // edit.  To fix this, we'll watch the directory containing our file of
+  // interest, discarding all events which are not the file of interest.
+  const dirname = path.dirname(filename);
+  const basename = path.basename(filename);
+  var w = fs.watch(dirname, function (type, fpath) {
+    if (fpath !== filename) return;
     onchange(filename);
   })
 
@@ -60,7 +63,6 @@ function watchRecursive (directory, onchange) {
 function watchFallback (directory, onchange) {
   var watching = {}
   var loaded = false
-  var queued = []
 
   visit('.', function () {
     loaded = true
@@ -72,28 +74,23 @@ function watchFallback (directory, onchange) {
     })
   }
 
-  function emit (name) {
-    queued.push(name)
-    if (queued.length === 1) update()
-  }
-
-  function update () {
-    var filename = queued[0]
+  function update (filename) {
+    onchange(filename)
 
     fs.lstat(filename, function (err, st) {
-      var w = watching[filename]
-
-      if (err && w) {
-        w.close()
-        delete watching[filename]
+      if (err) {
+        var w = watching[filename]
+        if (w) {
+          console.log(`recursive-watch: removing ${filename}: ${err}`);
+          w.close()
+          delete watching[filename]
+        }
+        return;
       }
 
-      onchange(filename)
-
-      visit(path.relative(directory, filename), function () {
-        queued.shift()
-        if (queued.length) update()
-      })
+      if (st.isDirectory()) {
+        visit(path.relative(directory, filename));
+      }
     })
   }
 
@@ -107,19 +104,22 @@ function watchFallback (directory, onchange) {
 
       var w = fs.watch(dir, function (change, filename) {
         filename = path.join(next, filename)
-        emit(path.join(directory, filename))
+        update(path.join(directory, filename))
       })
 
-      w.on('error', noop)
+      w.on('error', logError)
       watching[dir] = w
 
       fs.readdir(dir, function (err, list) {
-        if (err) return cb(err)
+        if (err) {
+          // Most likely does not exist.
+          return cb()
+        }
 
         loop()
 
         function loop () {
-          if (!list.length) return cb()
+          if (!list.length) return cb();
           visit(path.join(next, list.shift()), loop)
         }
       })
@@ -127,5 +127,7 @@ function watchFallback (directory, onchange) {
   }
 }
 
-function noop () {}
+function logError () {
+  console.error(`recursive-watch: ${arguments.join(', ')}`);
+}
 
