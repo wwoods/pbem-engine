@@ -92,6 +92,8 @@ export class _ServerLocal implements _Server {
     while (i > 0) {
       --i;
       const a = acts[i];
+      // Cannot undo before the round start or before end of game
+      if (a.type === 'PbemAction.GameEnd' || a.type === 'PbemAction.RoundStart') break;
       if (a.actionId !== action.actionId) continue;
       if (a.actionGrouped) throw new PbemError("Cannot undo grouped action");
 
@@ -129,6 +131,8 @@ export class _ServerLocal implements _Server {
 
       return;
     }
+
+    throw new PbemError("Couldn't find action");
   }
 
 

@@ -151,7 +151,7 @@ export namespace PbemState {
     const act = state.actions;
     let i = act.length - 1;
     while (i >= 0) {
-      if (act[i].type === 'PbemAction.RoundStart') {
+      if (act[i].type === 'PbemAction.RoundStart' || act[i].type === 'PbemAction.GameEnd') {
         break;
       }
       --i;

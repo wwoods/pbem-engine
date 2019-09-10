@@ -68,7 +68,6 @@ export type State = PbemState<GameSettings, GameState>;
 export namespace State {
   export const Hooks: PbemState.Hooks<State, Action> = {
     init(state) {
-      console.log('RAN INIT HOOK');
       const g = state.game;
       g.board = [];
       for (let i = 0; i < 9; i++) g.board.push(' ');
@@ -172,7 +171,6 @@ export namespace Action {
         const actions = PbemState.getRoundActions(state)
             .filter((x) => !x.actionGrouped && x.playerOrigin === action.playerOrigin)
             ;
-        console.log(actions);
         if (actions.length > 0) throw new PbemError('No free action');
 
         // Cannot play in occupied space.

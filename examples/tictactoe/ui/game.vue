@@ -12,8 +12,8 @@
     span(v-if="$pbem.state.gameEnded") has won!
     span(v-else) will win!
   div
-    input(type="button" value="End turn" @click="$pbem.action('PbemAction.TurnEnd')")
-  span TODO: gsap animation example, end game screen, click to undo, player turn overlay, bot support
+    input(type="button" value="End turn" @click="turnEnd()")
+  span TODO: test PWA app deployment, convert playersValid to slots implementation in lobby with dropdown, use undefined in players array for slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
 </template>
 
 <style lang="scss">
@@ -47,6 +47,13 @@ export default Vue.extend({
       const a = this.$pbem.getRoundPlayerActions();
       const b = a.filter(x => x.type === 'Play' && x.game.space === i);
       return b.length > 0 ? b[0] : undefined;
+    },
+    async turnEnd() {
+      if (this.$pbem.getRoundPlayerActions().length === 0) {
+        console.log("haven't done anything");
+        return;
+      }
+      await this.$pbem.action('PbemAction.TurnEnd');
     },
   },
 });

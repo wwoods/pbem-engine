@@ -10,6 +10,12 @@ import {pbemVueDefaultsPlugin} from './components/defaults';
 // Import user components
 import {pbemVuePlugin} from '@/ui';
 
+window.addEventListener('beforeinstallprompt', function(e: any) {
+  // As per https://love2dev.com/blog/beforeinstallprompt/, could
+  // show a custom prompt.
+  // alert('hi');
+});
+
 Vue.config.productionTip = false;
 
 //Register our plugin

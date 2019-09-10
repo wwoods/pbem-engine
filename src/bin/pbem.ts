@@ -7,9 +7,10 @@
  * */
 
 import assert from 'assert';
-const {spawn} = require('child_process');
+const {execFileSync, spawn} = require('child_process');
 const fs = require('fs');
 const fsExtra = require('fs-extra');
+const os = require('os');
 const path = require('path');
 const program = require('commander');
 const recursiveWatch = require('../recursive-watch');
@@ -116,6 +117,7 @@ program
       }));
     }
 
+    // Cannot use execFileSync: need event loop for file watch.
     const server = spawn('npm', ['run', 'serve'], {
       cwd: pbem_client_folder,
       stdio: 'inherit',
@@ -129,6 +131,29 @@ program
     });
   })
 ;
+
+
+program
+  .command('serve-pwa')
+  .description('build and serve the pbem-engine application in a way which may be downloaded as a PWA on a phone')
+  .action((cmd: any) => {
+    // TODO actually build project.. unify with serve code.  Allow --clean.
+    execFileSync('npm', ['run', 'build'], {
+      cwd: pbem_client_folder,
+      stdio: 'inherit',
+    });
+
+    // Note that real PWA requires HTTPS cert, or a local device proxy
+    // TODO ensure ~/.https-serve... rename that folder?
+    // (mkdir -p $HOME/.https-serve/ && cd $HOME/.https-serve/ && sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt)
+    // PWA needs trusted? https://certbot.eff.org/lets-encrypt/ubuntubionic-other
+    // OR use local device proxy https://stackoverflow.com/a/43426714/160205
+    execFileSync('npx', ['--no-install', 'serve', '-l', '8080', '-s', path.join(pbem_client_folder, 'dist')], {
+      stdio: 'inherit',
+    });
+  })
+;
+
 
 program.parse(process.argv);
 

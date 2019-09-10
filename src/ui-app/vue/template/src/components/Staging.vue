@@ -70,7 +70,7 @@ export default Vue.extend({
       const settings = this.settings;
       if (settings === undefined) return;
       await ServerLink.stagingStartGame(this.$route.params.id, settings);
-      this.$router.push({name: 'game', params: {id: this.$route.params.id}});
+      this.$router.replace({name: 'game', params: {id: this.$route.params.id}});
     },
   },
 });

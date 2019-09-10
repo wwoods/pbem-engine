@@ -12,6 +12,11 @@ export default new Router({
   base: process.env.BASE_URL,
   routes: [
     {
+      // Redirect for PWA functionality, similar to https://stackoverflow.com/a/54847456
+      path: '/index.html',
+      redirect: '/',
+    },
+    {
       path: '/',
       name: 'menu',
       component: () => import(/* webpackChunkName: "menu" */ './components/Menu.vue'),
