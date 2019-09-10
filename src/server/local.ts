@@ -79,6 +79,60 @@ export class _ServerLocal implements _Server {
 
 
   async gameLoad<State extends _PbemState>(gameId: string) {
+    const gi = this._fetchGame(gameId);
+    return gi.state as State;
+  }
+
+  async gameUndo(gameId: string, action: _PbemAction) {
+    const gi = this._fetchGame(gameId);
+    const state = gi.state!;
+    const acts = state.actions;
+    // Most undo will be recent actions, so start there.
+    let m = acts.length, i = m;
+    while (i > 0) {
+      --i;
+      const a = acts[i];
+      if (a.actionId !== action.actionId) continue;
+      if (a.actionGrouped) throw new PbemError("Cannot undo grouped action");
+
+      //This is the action to roll back.
+      let j = i + 1;
+      while (j < m && acts[j].actionGrouped) j++;
+
+      const rolled = [];
+      try {
+        let k = j;
+        while (k > i) {
+          --k;
+
+          const ak = acts[k];
+          const hooks = _PbemAction.resolve(ak.type);
+          if (hooks.validateBackward) hooks.validateBackward(state, ak);
+          hooks.backward(state, ak);
+          rolled.push(ak);
+          acts.splice(k, 1);
+          if (hooks.validate) hooks.validate(state, ak);
+        }
+
+        // All OK
+      }
+      catch (e) {
+        let k = j - rolled.length;
+        for (const r of rolled) {
+          const hooks = _PbemAction.resolve(r.type);
+          hooks.forward(state, r);
+          acts.splice(k, 0, r);
+          k++;
+        }
+        throw e;
+      }
+
+      return;
+    }
+  }
+
+
+  _fetchGame(gameId: string) {
     const gi = this.games.get(gameId);
     if (gi === undefined) {
       throw new ServerError.NoSuchGameError(gameId);
@@ -87,8 +141,7 @@ export class _ServerLocal implements _Server {
     if (gi.phase === 'staging') {
       throw new ServerError.GameIsStagingError(gameId);
     }
-
-    return gi.state as State;
+    return gi;
   }
 
 
@@ -147,6 +200,7 @@ export class _ServerLocal implements _Server {
     }
     catch (e) {
       if (!newGroup) {
+        // Throw before rolling back; rollback handled by new group.
         throw e;
       }
       console.error(e);
@@ -161,6 +215,8 @@ export class _ServerLocal implements _Server {
         // TODO if validate fails here, game is corrupt.  Can we reload from
         // start of turn?  Only if we saved a copy.
       }
+
+      throw e;
     }
     finally {
       if (newGroup) {

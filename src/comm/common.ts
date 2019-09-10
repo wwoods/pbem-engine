@@ -12,5 +12,6 @@ export interface CommCommon {
   stagingStartGame: {<Settings extends _PbemSettings>(s: Settings): Promise<void>};
   gameActions: {(action: _PbemAction[]): Promise<void>};
   gameLoad: {<State extends _PbemState>(): Promise<State>};
+  gameUndo: {(action: _PbemAction): Promise<void>};
 }
 

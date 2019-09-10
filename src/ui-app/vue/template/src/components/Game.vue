@@ -1,6 +1,5 @@
 <template lang="pug">
   .pbem-game
-    span Viewing game {{$route.params.id}}; TODO, $pbem probably won't watch right.
     div(v-if="state === undefined") Loading...
     pbem-game-view(v-if="state !== undefined")
 </template>

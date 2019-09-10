@@ -24,6 +24,10 @@ export class CommLocal implements CommCommon {
     await this._server.gameActions(this.gameId, actions);
   }
 
+  async gameUndo(action: _PbemAction) {
+    await this._server.gameUndo(this.gameId, action);
+  }
+
   async stagingCreate<Settings extends _PbemSettings>(s: Settings): Promise<void> {
     this.gameId = await this._server.stagingCreate(s);
   }

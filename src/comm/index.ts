@@ -1,7 +1,7 @@
 
 import assert from 'assert';
 
-import {_PbemAction, _PbemSettings, _PbemState, PbemPlayer, PbemPlayerView, PbemAction, _GameActionTypes} from '../game';
+import {_PbemAction, _PbemSettings, _PbemState, PbemPlayer, PbemPlayerView, PbemAction, PbemState, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
 export {ServerError} from '../server/common';
 
@@ -27,18 +27,21 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
     return ServerLink.actionsPending.filter((x) => x.playerOrigin === this.playerId).length > 0;
   }
 
-  async action(type: string, ...args: any[]) {
-    return this.actionMulti([type, ...args]);
+  getRoundPlayerActions() {
+    const ra = PbemState.getRoundActions(this.state);
+    const a = ra.filter(x => !x.actionGrouped && x.playerOrigin === this.playerId);
+    return a;
   }
 
-  async actionMulti(...actions: Array<[string, ...any[]]>) {
-    const objs = [];
-    for (const a of actions) {
-      const act = _PbemAction.create(...a);
-      act.playerOrigin = this.playerId;
-      objs.push(act);
-    }
-    await ServerLink.gameActions(objs);
+  async action(type: string, ...args: any[]) {
+    //return this.actionMulti([type, ...args]);
+    const act = _PbemAction.create(type, ...args);
+    act.playerOrigin = this.playerId;
+    await ServerLink.gameActions([act]);
+  }
+
+  async undo(act: _PbemAction) {
+    await ServerLink.gameUndo(act);
   }
 }
 
@@ -94,6 +97,15 @@ export class _ServerLink {
     this.localPlayers = this._state.settings.players;
     this.localPlayerActive(0);
     return this._state! as State;
+  }
+
+  async gameUndo(act: _PbemAction) {
+    const comm = this._comm;
+    if (comm === undefined) {
+      throw new ServerError.ServerError('Bad comm');
+    }
+
+    await comm.gameUndo(act);
   }
 
   async stagingCreateLocal<Settings extends _PbemSettings>(init?: {(s: Settings): Promise<void>}): Promise<string> {

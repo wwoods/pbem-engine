@@ -17,15 +17,16 @@ export interface PbemPlayerView<State extends _PbemState> extends _PbemPlayerVie
 
   readonly hasPending: boolean;
 
-  //Server events happen locally, and are thus not asynchronous.
+  // Player events must communicate with the server, and so are asynchronous.
   action(type: string, ...args: any[]): Promise<void>;
-  actionMulti(...actions: Array<[string, ...any[]]>): Promise<void>;
+  // Note that players cannot perform multiple actions at once.
 }
 export interface PbemServerView<State extends _PbemState> extends _PbemPlayerView {
   state: Readonly<State>;
 
-  //Server events happen locally, and are thus not asynchronous.
+  // Server events happen locally, and are thus not asynchronous.
   action(type: string, ...args: any[]): void;
+  // Server can perform several actions at once as a shortcut.
   actionMulti(...actions: Array<[string, ...any[]]>): void;
 }
 
