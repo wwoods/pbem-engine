@@ -16,6 +16,8 @@ window.addEventListener('beforeinstallprompt', function(e: any) {
   // alert('hi');
 });
 
+// TODO https://stackoverflow.com/a/54377386/160205 for PWA tips
+
 Vue.config.productionTip = false;
 
 //Register our plugin

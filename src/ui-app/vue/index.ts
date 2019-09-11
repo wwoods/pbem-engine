@@ -65,6 +65,14 @@ export function setup(buildPath: string, config: Config) {
 
   //TODO this should be non-vue-specific, I presume.
   checkPackageConfig(buildPath, cfg, config);
+
+  {
+    const jsonPath = path.join(buildPath, 'public', 'manifest.json');
+    const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    jsonData.name = cfg.name;
+    jsonData.short_name = cfg.name;
+    fs.writeFileSync(jsonPath, JSON.stringify(jsonData, null, 2));
+  }
 }
 
 

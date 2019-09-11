@@ -24,24 +24,25 @@ export type Settings = PbemSettings<GameSettings>;
 export namespace Settings {
   export const Hooks: PbemSettings.Hooks<Settings> = {
     init(settings) {
+      // Tell pbem-engine about valid player slot configurations, and initial
+      // number of slots.
       settings.playersValid = [2];
+      settings.players.length = 2;
+
       // Can use version field to retain cross-version compatibility; note that
       // this version is also used to ensure players are using the same version
       // of the software.
       settings.version = 1;
+
       // Can be false for non-simultaneous turns.
-      settings.turnSimultaneous = true;
-      // Can be true for pass-and-play functionality.
-      settings.turnPassAndPlay = false;
+      // settings.turnSimultaneous = false;
+      // Can be false to disable pass-and-play functionality.
+      // settings.turnPassAndPlay = false;
 
       const s = settings.game;
       s.playerOneIsO = false;
     },
     validate(settings) {
-      if (settings.players.length !== 2) {
-        // Anything not-undefined returned is routed to the UI.
-        throw new PbemError("Not enough players.");
-      }
     },
   };
 }
@@ -152,6 +153,8 @@ export type Action = PbemAction.Types.Builtins | Action.Types.Play | Action.Type
 export namespace Action {
   export namespace Types {
     /// Make a move
+    // TODO don't need types?  Could support pbem.action(Play, ...) templated,
+    // which could have appropriate type checking.
     export type Play = PbemAction<'Play', {
       space: number,
     }>;

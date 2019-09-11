@@ -13,7 +13,7 @@
     span(v-else) will win!
   div
     input(type="button" value="End turn" @click="turnEnd()")
-  span TODO: test PWA app deployment, convert playersValid to slots implementation in lobby with dropdown, use undefined in players array for slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
+  span TODO: convert playersValid to slots implementation in lobby with dropdown, use undefined in players array for slots, bot support plus locked slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
 </template>
 
 <style lang="scss">
