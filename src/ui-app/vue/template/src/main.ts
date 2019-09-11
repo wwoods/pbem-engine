@@ -17,6 +17,7 @@ window.addEventListener('beforeinstallprompt', function(e: any) {
 });
 
 // TODO https://stackoverflow.com/a/54377386/160205 for PWA tips
+// TODO https://josephuspaye.github.io/Keen-UI/ may as well integrate a lightweight library into the template.
 
 Vue.config.productionTip = false;
 

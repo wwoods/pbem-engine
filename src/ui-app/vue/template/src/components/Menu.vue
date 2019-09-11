@@ -6,8 +6,6 @@
 <script lang="ts">
 import Vue from 'vue';
 
-import {ServerLocal} from 'pbem-engine/lib/server/local';
-import {PbemSettings} from 'pbem-engine/lib/game';
 import {Settings} from '@/game';
 
 export default Vue.extend({

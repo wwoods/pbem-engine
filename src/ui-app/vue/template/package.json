@@ -1,5 +1,6 @@
 {
-  "name": "template",
+  "name": "pbem-vue-template",
+  "description": "Overwritten by pbem-config.json",
   "version": "0.1.0",
   "org_pbem": {
     "version": 1

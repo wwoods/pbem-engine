@@ -108,7 +108,7 @@ export class _ServerLink {
     await comm.gameUndo(act);
   }
 
-  async stagingCreateLocal<Settings extends _PbemSettings>(init?: {(s: Settings): Promise<void>}): Promise<string> {
+  async stagingCreateLocal<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<string> {
     const s = await this._stagingCreateSettings(init);
 
     await this._commSwitch(IdPrefix.Local);
@@ -169,10 +169,10 @@ export class _ServerLink {
   }
 
 
-  async _stagingCreateSettings<Settings extends _PbemSettings>(init?: {(s: Settings): Promise<void>}): Promise<Settings> {
+  async _stagingCreateSettings<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<Settings> {
     const s = _PbemSettings.create() as Settings;
     _PbemSettings.Hooks.init(s);
-    init !== undefined && await init(s);
+    await init(s);
     return s;
   }
 }

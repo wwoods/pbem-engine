@@ -4,8 +4,12 @@
     template(v-if="settings !== undefined")
       div
         div Players in game
+        select(v-model="playersLength")
+          option(v-for="n of settings.playersValid" :value="n") {{n}}
         ul
-          li(v-for="player of settings.players") {{player.name}}
+          li(v-for="player of settings.players")
+            template(v-if="player !== undefined") {{player.name}}
+            span(v-else) Empty slot
         input(type="button" value="Add Pass-and-Play player" @click="playerAddPnp")
           
       pbem-staging-settings(:settings="settings")
@@ -23,6 +27,12 @@ export default Vue.extend({
     return {
       settings: undefined as Settings | undefined,
     };
+  },
+  computed: {
+    playersLength: {
+      get: function(this: any) { return this.settings && this.settings!.players.length; },
+      set: function(val) { if (this.settings) { this.settings!.players.length = val; this.settings = Object.assign({}, this.settings); } },
+    },
   },
   watch: {
     async '$route.params.id'(val) {

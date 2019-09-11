@@ -41,7 +41,11 @@ export const pbemPlugin = {
  * */
 export const _pbemServer = {
   async createLocal(init?: {(s: Settings): Promise<void>}): Promise<void> {
-    const gameId = await ServerLink.stagingCreateLocal(init);
+    const innerInit = async (s: Settings) => {
+      Settings.Hooks.init(s);
+      if (init !== undefined) await init(s);
+    };
+    const gameId = await ServerLink.stagingCreateLocal(innerInit);
     router.push({name: 'staging', params: {id: gameId}});
   }
 };

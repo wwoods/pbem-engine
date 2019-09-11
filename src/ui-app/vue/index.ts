@@ -69,8 +69,8 @@ export function setup(buildPath: string, config: Config) {
   {
     const jsonPath = path.join(buildPath, 'public', 'manifest.json');
     const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-    jsonData.name = cfg.name;
-    jsonData.short_name = cfg.name;
+    jsonData.name = cfg.description;
+    jsonData.short_name = cfg.description;
     fs.writeFileSync(jsonPath, JSON.stringify(jsonData, null, 2));
   }
 }
@@ -92,7 +92,15 @@ function checkPackageConfig(buildPath: string, cfg: any, pbemCfg: Config) {
   }
 
   for (const i of Object.keys(pbemCfg)) {
-    if (i === "name" || i === "version") {
+    if (i === "name") {
+      // Since node complains if "name" isn't a valid identifier, populate the
+      // "description" field instead.
+      if (cfg.description !== pbemCfg[i]) {
+        dirty = true;
+        cfg.description = pbemCfg[i];
+      }
+    }
+    else if (i === "version") {
       if (cfg[i] !== pbemCfg[i]) {
         dirty = true;
         cfg[i] = pbemCfg[i];
