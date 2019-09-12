@@ -172,6 +172,18 @@ export class _ServerLocal implements _Server {
       for (const action of actions) {
         if (state.gameEnded) throw new PbemError('Game already over');
 
+        if (action.playerOrigin === -1) {
+          // System always OK at this point.
+        }
+        else {
+          if (action.playerOrigin < 0 || action.playerOrigin >= state.settings.players.length) {
+            throw new PbemError(`Bad player index: ${action.playerOrigin}`);
+          }
+          else if (state.settings.players[action.playerOrigin] === undefined) {
+            throw new PbemError(`Undefined player: ${action.playerOrigin}`);
+          }
+        }
+
         const hooks = _PbemAction.resolve(action.type);
         if (hooks.validate !== undefined) {
           hooks.validate(state, action);

@@ -6,15 +6,41 @@
         div Players in game
         select(v-model="playersLength")
           option(v-for="n of settings.playersValid" :value="n") {{n}}
-        ul
-          li(v-for="player of settings.players")
-            template(v-if="player !== undefined") {{player.name}}
-            span(v-else) Empty slot
-        input(type="button" value="Add Pass-and-Play player" @click="playerAddPnp")
-          
+        .players
+          .player(v-for="player, idx of settings.players")
+            template(v-if="player !== undefined")
+              span {{player.name}}
+              input(type="button" value="kick" @click="playerKick(idx)")
+            template(v-if="player === undefined")
+              span Empty slot
+              input(type="button" value="Join as local player" @click="playerLocal(idx)")
+
       pbem-staging-settings(:settings="settings")
       input(type="button" value="Start" @click="startGame")
 </template>
+
+<style lang="scss">
+  .pbem-staging {
+    .players {
+      margin-left: auto;
+      margin-right: auto;
+      max-width: 30rem;
+      justify-content: center;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+
+      .player {
+        display: inline-block;
+        width: 10em;
+        border: solid 1px #000;
+        border-radius: 0.5rem;
+        margin: 0.1rem;
+        padding: 0.2rem;
+      }
+    }
+  }
+</style>
 
 <script lang="ts">
 import Vue from 'vue';
@@ -71,10 +97,14 @@ export default Vue.extend({
         this.settings = settings;
       }
     },
-    playerAddPnp() {
-      const settings = this.settings;
-      if (settings === undefined) return;
-      settings.players.push({name: 'locally', online: true});
+    playerKick(idx: number) {
+      this.settings!.players.splice(idx, 1, undefined);
+    },
+    playerLocal(idx: number) {
+      this.settings!.players.splice(idx, 1, {
+        name: `Local ${idx}`,
+        index: idx,
+      });
     },
     async startGame() {
       const settings = this.settings;

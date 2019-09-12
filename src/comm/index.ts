@@ -55,7 +55,7 @@ export class _ServerLink {
   localPlayerActive(newPlayer?: number) {
     if (newPlayer !== undefined) {
       this._localPlayerActive = newPlayer;
-      this.localPlayerView.playerId = newPlayer;
+      this.localPlayerView.playerId = this.localPlayers[newPlayer].index;
       this.localPlayerView.state = this._state!;
     }
     return this._localPlayerActive;
@@ -94,7 +94,8 @@ export class _ServerLink {
     this._settings = undefined;
     this._state = await this._comm!.gameLoad<State>();
     // TODO smarter player management
-    this.localPlayers = this._state.settings.players;
+    this.localPlayers = this._state.settings.players.filter(
+        x => x !== undefined) as PbemPlayer[];
     this.localPlayerActive(0);
     return this._state! as State;
   }
@@ -173,6 +174,10 @@ export class _ServerLink {
     const s = _PbemSettings.create() as Settings;
     _PbemSettings.Hooks.init(s);
     await init(s);
+    // After all hooks, ensure players.length is valid
+    if (s.playersValid.indexOf(s.players.length) === -1) {
+      s.players.length = s.playersValid[0];
+    }
     return s;
   }
 }

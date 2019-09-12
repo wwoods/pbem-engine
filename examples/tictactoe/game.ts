@@ -26,8 +26,13 @@ export namespace Settings {
     init(settings) {
       // Tell pbem-engine about valid player slot configurations, and initial
       // number of slots.
-      settings.playersValid = [2];
-      settings.players.length = 2;
+      settings.playersValid = [2,4,6];
+
+      // Actual number of players in the game required to start.
+      settings.playersMin = 2;
+
+      // Can set a different number of starting players, if desired.
+      // settings.players.length = 4;
 
       // Can use version field to retain cross-version compatibility; note that
       // this version is also used to ensure players are using the same version
@@ -62,7 +67,8 @@ export namespace Settings {
 export interface GameState {
   board: string[];
   scores: number[];
-  playerSymbol: string[];
+  playerSymbol: {[index: string]: string};
+  playerSymbolReverse: {[symbol: string]: number};
   playerWillWin?: number;
 }
 export type State = PbemState<GameSettings, GameState>;
@@ -70,13 +76,24 @@ export namespace State {
   export const Hooks: PbemState.Hooks<State, Action> = {
     init(state) {
       const g = state.game;
+
+      // Must initialize all members of game state.
       g.board = [];
       for (let i = 0; i < 9; i++) g.board.push(' ');
-
-      const settings = state.settings.game;
-      g.playerSymbol = settings.playerOneIsO ? ['o', 'x'] : ['x', 'o'];
-
+      g.playerSymbol = {};
+      g.playerSymbolReverse = {};
       g.scores = [];
+
+      const settings = state.settings;
+      const symbols = settings.game.playerOneIsO ? ['o', 'x'] : ['x', 'o'];
+      for (const p of settings.players) {
+        if (p === undefined) continue;
+        const sym = symbols.shift();
+        if (sym === undefined) throw new Error('No symbols left');
+        g.playerSymbol[p.index] = sym;
+        g.playerSymbolReverse[sym] = p.index;
+      }
+
       for (const p of state.settings.players) {
         g.scores.push(0);
       }
@@ -115,7 +132,7 @@ export namespace State {
         }
 
         if (p !== ' ') {
-          const player = g.playerSymbol.indexOf(p);
+          const player = g.playerSymbolReverse[p];
           pbem.action('WillWin', player);
         }
       }
@@ -163,7 +180,9 @@ export namespace Action {
         action.game.space = space;
       },
       validate(state, action) {
-        if ([0, 1].indexOf(action.playerOrigin) === -1) throw new PbemError('Bad player');
+        // pbem-engine validates that playerOrigin is coming from an actual
+        // player.
+        if (action.playerOrigin === -1) throw new PbemError('Bad player');
 
         if (action.game.space === undefined) throw new PbemError('Undefined space?');
         if (action.game.space < 0 || action.game.space >= 9) throw new PbemError(`Out of bounds: ${action.game.space}`);

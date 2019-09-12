@@ -6,14 +6,14 @@
         span {{$pbem.state.game.board[j * 3 + i]}}
 
   div(v-if="$pbem.hasPending") Waiting on network...
-  div {{$pbem.state.settings.players.length}} players in game.  {{$pbem.playerId}} is active.
+  div {{$pbem.state.settings.players.reduce((a, b) => a + (b ? 1 : 0), 0)}} players in game.  {{$pbem.playerId}} is active.
   div(v-if="$pbem.state.game.playerWillWin !== undefined")
     span {{$pbem.state.game.playerWillWin}}&nbsp;
     span(v-if="$pbem.state.gameEnded") has won!
     span(v-else) will win!
   div
     input(type="button" value="End turn" @click="turnEnd()")
-  span TODO: convert playersValid to slots implementation in lobby with dropdown, use undefined in players array for slots, bot support plus locked slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
+  span TODO: bot support plus locked slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
 </template>
 
 <style lang="scss">

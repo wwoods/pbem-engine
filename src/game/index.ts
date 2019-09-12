@@ -1,10 +1,14 @@
+/** Note: names in this file should be unabbreviated, and easy to remember.
+ * */
 
 import {PbemError} from '../error';
 export {PbemError} from '../error';
 
 export interface PbemPlayer {
   name: string;
-  online: boolean;
+  // Only used for reference passing.  Hardcoded to the index in
+  // settings.players
+  index: number;
 }
 
 
@@ -36,7 +40,8 @@ export interface _PbemSettings {
   version: any;
 
   playersValid: Array<number>;
-  players: Array<PbemPlayer>;
+  playersMin: number;
+  players: Array<PbemPlayer | undefined>;
 
   turnSimultaneous: boolean;
   turnPassAndPlay: boolean;
@@ -50,6 +55,7 @@ export namespace _PbemSettings {
     const settings = {} as _PbemSettings;
     settings.version = 0;
     settings.playersValid = [2];
+    settings.playersMin = 1;
     settings.players = [];
     settings.turnSimultaneous = true;
     settings.turnPassAndPlay = true;
@@ -68,6 +74,11 @@ export namespace _PbemSettings {
       const p = settings.players.length;
       if (settings.playersValid.indexOf(p) < 0) {
         throw new PbemError(`Unsupported number of players: ${p}`);
+      }
+      const actualPlayers = settings.players.reduce(
+          (a, b) => a + (b ? 1 : 0), 0);
+      if (actualPlayers < settings.playersMin) {
+        throw new PbemError(`Not enough players: ${actualPlayers} / ${settings.playersMin}`);
       }
     },
   };
@@ -113,8 +124,13 @@ export namespace _PbemState {
     // Just to keep typescript happy.
     init(state) {},
     triggerCheck(pbem, sinceActionIndex) {
-      const turnEnded = pbem.state.turnEnded;
-      if (turnEnded.reduce((x, y) => x && y, true)) {
+      let allDone = true;
+      const p = pbem.state.settings.players;
+      for (let i = 0, m = p.length; i < m; i++) {
+        if (p[i] === undefined) continue;
+        allDone = allDone && pbem.state.turnEnded[i];
+      }
+      if (allDone) {
         // All ready - advance round.
         pbem.action('PbemAction.RoundEnd');
 
