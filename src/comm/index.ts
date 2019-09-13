@@ -39,6 +39,8 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
   async action(type: string, ...args: any[]) {
     //return this.actionMulti([type, ...args]);
     try {
+      this.userActionErrorClear();
+
       const act = _PbemAction.create(type, ...args);
       act.playerOrigin = this.playerId;
       await ServerLink.gameActions([act]);
@@ -51,21 +53,28 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
   uiEvent<E extends PbemEvent._Type<T>, T>(eventType: E, game: T): void {
     const event = PbemEvent.create(eventType, game);
     if (event.type === 'PbemAction.UserError') {
-      for (let i = this.uiEvents.length - 1; i > -1; --i) {
-        if (this.uiEvents[i].type === 'PbemAction.UserError') {
-          this.uiEvents.splice(i, 1);
-        }
-      }
+      this.userActionErrorClear();
     }
     this.uiEvents.unshift(event);
   }
 
   async undo(act: _PbemAction) {
     try {
+      this.userActionErrorClear();
+
       await ServerLink.gameUndo(act);
     }
     catch (e) {
       this.uiEvent(PbemEvent.UserActionError, e);
+    }
+  }
+
+  /** Clear previous user action errors, since they did something else. */
+  userActionErrorClear() {
+    for (let i = this.uiEvents.length - 1; i > -1; --i) {
+      if (this.uiEvents[i].type === 'PbemAction.UserError') {
+        this.uiEvents.splice(i, 1);
+      }
     }
   }
 }
