@@ -12,8 +12,11 @@
  * refer to one another by ID.
  * */
 
-import {PbemError, PbemSettings, PbemState, PbemAction} from 'pbem-engine/lib/game';
+import {PbemError, PbemEvent, PbemSettings, PbemState, PbemAction} from 'pbem-engine/lib/game';
 // TODO PbemState.Writable = Readonly<PbemState>
+
+
+export const WillWinEvent = PbemEvent.Type<string>('WillWin');
 
 /** User-defined settings - everything non-player-related required for
  * initializing a new game. */
@@ -226,9 +229,12 @@ export namespace Action {
       },
       forward(state, action) {
         state.game.playerWillWin = action.game.player;
+        state.events.map(x => x && x.unshift(PbemEvent.create(WillWinEvent,
+            `${action.game.player} will win`)));
       },
       backward(state, action) {
         state.game.playerWillWin = undefined;
+        state.events.map(x => x && x.shift());
       },
     };
 

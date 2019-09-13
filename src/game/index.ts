@@ -11,6 +11,36 @@ export interface PbemPlayer {
   index: number;
 }
 
+/** PbemEvents are persistent if in state.events, and are transient if in
+ * $pbem.uiEvents.
+ * */
+export interface _PbemEvent {
+  type: string;
+  game: any;
+}
+export interface PbemEvent<T> extends _PbemEvent {
+  game: T;
+}
+export namespace PbemEvent {
+  export function Type<T>(name: string) {
+    return {name} as PbemEvent._Type<T>;
+  }
+  export function create<E extends PbemEvent._Type<T>, T>(eventType: E,
+      game: T): PbemEvent<T> {
+    return {
+      type: eventType.name,
+      game,
+    };
+  }
+
+  export const UserActionError = Type<string>('PbemAction.UserError');
+
+  export interface _Type<T> {
+    name: string;
+    empty?: T;
+  }
+}
+
 
 export interface _PbemPlayerView {
   playerId: number;  // Will be -1 for PbemServerView.
@@ -18,6 +48,7 @@ export interface _PbemPlayerView {
 }
 export interface PbemPlayerView<State extends _PbemState> extends _PbemPlayerView {
   state: Readonly<State>;
+  uiEvents: Array<_PbemEvent>;
 
   readonly hasPending: boolean;
 
@@ -97,6 +128,7 @@ export namespace PbemSettings {
 
 export interface _PbemState {
   actions: _PbemAction[];
+  events: Array<_PbemEvent[]>;
   settings: _PbemSettings;
   game: any;
   gameEnded: boolean;
@@ -107,6 +139,7 @@ export namespace _PbemState {
   export async function create<Settings extends _PbemSettings>(settings: Settings) {
     const s: _PbemState = {
       actions: [],
+      events: [],
       settings,
       game: {},
       gameEnded: false,
@@ -114,6 +147,14 @@ export namespace _PbemState {
       turnEnded: [],
     };
     for (let i = 0, m = settings.players.length; i < m; i++) {
+      if (settings.players[i] !== undefined) {
+        s.events.push([]);
+      }
+      else {
+        // Trick typescript into allowing undefined; user code should be fine
+        // assuming events is an array and not undefined.
+        (s.events as any).push(undefined);
+      }
       s.turnEnded.push(false);
     }
     await _GameHooks.State!.init(s);

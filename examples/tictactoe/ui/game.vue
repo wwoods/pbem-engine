@@ -13,7 +13,10 @@
     span(v-else) will win!
   div
     input(type="button" value="End turn" @click="turnEnd()")
-  span TODO: bot support plus locked slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
+  span TODO: bot support plus locked slots.  error toasts, gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
+  ul
+    template(v-for="ev of $pbem.uiEvents.concat($pbem.state.events[$pbem.playerId])")
+      li {{ev.type}}: {{ev.game}}
 </template>
 
 <style lang="scss">
@@ -31,6 +34,8 @@
 
 <script lang="ts">
 import Vue from 'vue';
+
+import {PbemEvent} from 'pbem-engine/lib/game';
 
 export default Vue.extend({
   methods: {
@@ -50,7 +55,8 @@ export default Vue.extend({
     },
     async turnEnd() {
       if (this.$pbem.getRoundPlayerActions().length === 0) {
-        console.log("haven't done anything");
+        this.$pbem.uiEvents.unshift(PbemEvent.create(PbemEvent.UserActionError,
+            "haven't done anything"));
         return;
       }
       await this.$pbem.action('PbemAction.TurnEnd');

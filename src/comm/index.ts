@@ -1,7 +1,8 @@
 
 import assert from 'assert';
 
-import {_PbemAction, _PbemSettings, _PbemState, PbemPlayer, PbemPlayerView, PbemAction, PbemState, _GameActionTypes} from '../game';
+import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemPlayer,
+  PbemPlayerView, PbemAction, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
 export {ServerError} from '../server/common';
 
@@ -16,10 +17,12 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
   // intuitive than just "id".
   playerId: number;
   state: State;
+  uiEvents: Array<_PbemEvent>;
 
   constructor() {
     this.playerId = -1;
     this.state = ({} as any) as State;
+    this.uiEvents = [];
   }
 
   get hasPending(): boolean {
@@ -35,13 +38,23 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
 
   async action(type: string, ...args: any[]) {
     //return this.actionMulti([type, ...args]);
-    const act = _PbemAction.create(type, ...args);
-    act.playerOrigin = this.playerId;
-    await ServerLink.gameActions([act]);
+    try {
+      const act = _PbemAction.create(type, ...args);
+      act.playerOrigin = this.playerId;
+      await ServerLink.gameActions([act]);
+    }
+    catch (e) {
+      this.uiEvents.unshift(PbemEvent.create(PbemEvent.UserActionError, e));
+    }
   }
 
   async undo(act: _PbemAction) {
-    await ServerLink.gameUndo(act);
+    try {
+      await ServerLink.gameUndo(act);
+    }
+    catch (e) {
+      this.uiEvents.unshift(PbemEvent.create(PbemEvent.UserActionError, e));
+    }
   }
 }
 
@@ -57,6 +70,7 @@ export class _ServerLink {
       this._localPlayerActive = newPlayer;
       this.localPlayerView.playerId = this.localPlayers[newPlayer].index;
       this.localPlayerView.state = this._state!;
+      this.localPlayerView.uiEvents = [];
     }
     return this._localPlayerActive;
   }
