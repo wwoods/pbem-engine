@@ -55,6 +55,13 @@ export interface PbemPlayerView<State extends _PbemState> extends _PbemPlayerVie
   // Player events must communicate with the server, and so are asynchronous.
   action(type: string, ...args: any[]): Promise<void>;
   // Note that players cannot perform multiple actions at once.
+
+  // Register UI Events this way, so that triggers are handled appropriately.
+  //  TODO typescript error:  It's OK because the autocompletion in the Vue
+  //  plugin for $pbem uses the comm/index PlayerView interface directly,
+  //  but it iseems like this next line should be OK.  It causes an error
+  //  instead.
+  //  uiEvent<E extends PbemEvent._Type<T>, T>(eventType: E, game: T): void;
 }
 export interface PbemServerView<State extends _PbemState> extends _PbemPlayerView {
   state: Readonly<State>;

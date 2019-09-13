@@ -55,8 +55,7 @@ export default Vue.extend({
     },
     async turnEnd() {
       if (this.$pbem.getRoundPlayerActions().length === 0) {
-        this.$pbem.uiEvents.unshift(PbemEvent.create(PbemEvent.UserActionError,
-            "haven't done anything"));
+        this.$pbem.uiEvent(PbemEvent.UserActionError, "haven't done anything");
         return;
       }
       await this.$pbem.action('PbemAction.TurnEnd');
