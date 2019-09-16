@@ -46,16 +46,18 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
       await ServerLink.gameActions([act]);
     }
     catch (e) {
-      this.uiEvent(PbemEvent.UserActionError, e);
+      this.uiEvent('userError', PbemEvent.UserActionError, e);
     }
   }
 
-  uiEvent<E extends PbemEvent._Type<T>, T>(eventType: E, game: T): void {
-    const event = PbemEvent.create(eventType, game);
-    if (event.type === 'PbemAction.UserError') {
+  uiEvent<E extends PbemEvent._Type<T>, T>(eventId: string, eventType: E,
+    game: T) {
+    if (eventType.name === 'PbemEvent.UserActionError') {
       this.userActionErrorClear();
     }
-    this.uiEvents.unshift(event);
+    const event = PbemEvent.create(eventId, eventType, game);
+    PbemEvent.queueAdd(this.uiEvents, event);
+    return event;
   }
 
   async undo(act: _PbemAction) {
@@ -65,14 +67,14 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
       await ServerLink.gameUndo(act);
     }
     catch (e) {
-      this.uiEvent(PbemEvent.UserActionError, e);
+      this.uiEvent('userError', PbemEvent.UserActionError, e);
     }
   }
 
   /** Clear previous user action errors, since they did something else. */
   userActionErrorClear() {
     for (let i = this.uiEvents.length - 1; i > -1; --i) {
-      if (this.uiEvents[i].type === 'PbemAction.UserError') {
+      if (this.uiEvents[i].type === 'PbemEvent.UserActionError') {
         this.uiEvents.splice(i, 1);
       }
     }

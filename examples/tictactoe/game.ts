@@ -155,7 +155,7 @@ export namespace State {
 
 /** PbemActions live the following lifecycle:
  *
- * forward: constructor() -> validate() -> setupBackward() -> forward()
+ * forward: constructor() -> validate() -> setup() -> forward()
  * backward: [validateBackward() ->] backward() -> validate() [fail -> forward()]
  *
  * Note that validateBackward() is only executed if the backward is
@@ -229,8 +229,8 @@ export namespace Action {
       },
       forward(state, action) {
         state.game.playerWillWin = action.game.player;
-        state.events.map(x => x && x.unshift(PbemEvent.create(WillWinEvent,
-            `${action.game.player} will win`)));
+        state.events.map(x => x && x.unshift(PbemEvent.create('willWin',
+            WillWinEvent, `${action.game.player} will win`)));
       },
       backward(state, action) {
         state.game.playerWillWin = undefined;

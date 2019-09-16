@@ -86,7 +86,8 @@ export class _ServerLocal implements _Server {
   async gameUndo(gameId: string, action: _PbemAction) {
     const gi = this._fetchGame(gameId);
     const state = gi.state!;
-    const acts = state.actions;
+    // Note: acts is made mutable.
+    const acts = state.actions as _PbemAction[];
     // Most undo will be recent actions, so start there.
     let m = acts.length, i = m;
     while (i > 0) {
@@ -160,6 +161,7 @@ export class _ServerLocal implements _Server {
     }
 
     const state = gi.state!;
+    const stateActionsMutable = state.actions as _PbemAction[];
     const sinceAction = state.actions.length;
     const newGroup: boolean = !gi.actionGroupInProgress;
     let groupMember: boolean = gi.actionGroupInProgress;
@@ -189,12 +191,12 @@ export class _ServerLocal implements _Server {
           hooks.validate(state, action);
         }
 
-        if (hooks.setupBackward !== undefined) {
-          hooks.setupBackward(state, action);
+        if (hooks.setup !== undefined) {
+          hooks.setup(state, action);
         }
 
         action.actionGrouped = groupMember;
-        state.actions.push(action);
+        stateActionsMutable.push(action);
         hooks.forward(state, action);
 
         groupMember = true;
@@ -221,8 +223,8 @@ export class _ServerLocal implements _Server {
       }
       console.error(e);
 
-      while (state.actions.length > sinceAction) {
-        const action = state.actions.pop()!;
+      while (stateActionsMutable.length > sinceAction) {
+        const action = stateActionsMutable.pop()!;
         const hooks = _PbemAction.resolve(action.type);
         hooks.backward(state, action);
         if (hooks.validate !== undefined) {

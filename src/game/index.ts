@@ -15,6 +15,7 @@ export interface PbemPlayer {
  * $pbem.uiEvents.
  * */
 export interface _PbemEvent {
+  eventId: string;
   type: string;
   game: any;
 }
@@ -25,15 +26,57 @@ export namespace PbemEvent {
   export function Type<T>(name: string) {
     return {name} as PbemEvent._Type<T>;
   }
-  export function create<E extends PbemEvent._Type<T>, T>(eventType: E,
-      game: T): PbemEvent<T> {
+  export function create<E extends PbemEvent._Type<T>, T>(eventId: string,
+      eventType: E, game: T): PbemEvent<T> {
     return {
+      eventId,
       type: eventType.name,
       game,
     };
   }
 
-  export const UserActionError = Type<string>('PbemAction.UserError');
+  export function queueAdd(queue: _PbemEvent[], event: _PbemEvent) {
+    const eid = event.eventId;
+    for (let i = queue.length - 1; i > -1; --i) {
+      if (queue[i].eventId === eid) {
+        queue.splice(i, 1);
+      }
+    }
+    queue.unshift(event);
+  }
+
+  export function queueGet<E extends PbemEvent._Type<T>, T>(queue: _PbemEvent[], eventId: string, eventType?: E): PbemEvent<T> | undefined {
+    for (let i = 0, m = queue.length; i < m; i++) {
+      const q = queue[i];
+      if (q.eventId === eventId) {
+        if (eventType !== undefined && q.type !== eventType.name) {
+          throw new Error(`Bad event type ${q.type} !== ${eventType.name}`);
+        }
+        return q;
+      }
+    }
+  }
+
+  export function queueRemove<E extends PbemEvent._Type<T>, T>(
+      queue: _PbemEvent[], eventId: string, eventType?: E) {
+    for (let i = queue.length - 1; i > -1; --i) {
+      if (queue[i].eventId === eventId) {
+        return queue.splice(i, 1)[0];
+      }
+    }
+    throw new Error(`No event ${eventId} in queue ${queue}`);
+  }
+
+  export function queueRemoveIfExists(queue: _PbemEvent[], eventId: string) {
+    for (let i = queue.length - 1; i > -1; --i) {
+      if (queue[i].eventId === eventId) {
+        queue.splice(i, 1)[0];
+        return;
+      }
+    }
+  }
+
+  export const UserActionError = Type<string>('PbemEvent.UserActionError');
 
   export interface _Type<T> {
     name: string;
@@ -134,9 +177,9 @@ export namespace PbemSettings {
 
 
 export interface _PbemState {
-  actions: _PbemAction[];
-  events: Array<_PbemEvent[]>;
-  settings: _PbemSettings;
+  actions: readonly _PbemAction[];
+  events: Readonly<Array<_PbemEvent[]>>;
+  settings: Readonly<_PbemSettings>;
   game: any;
   gameEnded: boolean;
   round: number;
@@ -155,7 +198,7 @@ export namespace _PbemState {
     };
     for (let i = 0, m = settings.players.length; i < m; i++) {
       if (settings.players[i] !== undefined) {
-        s.events.push([]);
+        (s.events as _PbemEvent[][]).push([]);
       }
       else {
         // Trick typescript into allowing undefined; user code should be fine
@@ -165,7 +208,7 @@ export namespace _PbemState {
       s.turnEnded.push(false);
     }
     await _GameHooks.State!.init(s);
-    return s;
+    return s as _PbemState;
   }
 
   export const Hooks: PbemState.Hooks<_PbemState, _PbemAction> = {
@@ -278,7 +321,7 @@ export namespace PbemAction {
     // TODO ensure error if no init() specified but args were.
     init?: {(action: Action, ...args:any): void};
     validate?: {(state: Readonly<State>, action: Readonly<Action>): void};
-    setupBackward?: {(state: Readonly<State>, action: Action): void};
+    setup?: {(state: Readonly<State>, action: Action): void};
     forward: {(state: State, action: Readonly<Action>): void};
     validateBackward?: {(state: Readonly<State>, action: Readonly<Action>): void};
     backward: {(state: State, action: Readonly<Action>): void};
@@ -311,7 +354,7 @@ export namespace PbemAction {
           throw new PbemError('Must be server to end round');
         }
       },
-      setupBackward(state, action) {
+      setup(state, action) {
         action.game.turnEnded = state.turnEnded.slice();
       },
       forward(state, action) {
