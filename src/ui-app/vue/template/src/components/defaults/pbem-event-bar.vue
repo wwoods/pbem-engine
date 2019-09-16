@@ -4,7 +4,7 @@
       .ev-info(v-for="ev of events" :key="ev.eventId" v-show="ev.eventId === active" @click="active = undefined")
         slot(:ev="ev")
           span Event {{ev.eventId}}: {{ev.type}}: {{ev.game}}
-    .icons
+    transition-group(name="icon-list" tag="div" class="icons")
       .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active = ev.eventId"
           :class="{selected: active === ev.eventId, seen: eventsViewed.has(ev.eventId)}")
         slot(name="icon" :ev="ev")
@@ -44,16 +44,42 @@
     align-items: center;
 
     .ev-icon {
+      display: inline-block;
       margin: 0.1rem;
       padding: 1rem;
-      background-color: #fee;
       border-radius: 1rem;
 
       &.selected {
-        background-color: #efe !important;
+        background-color: #fa9a85 !important;
       }
       &.seen {
         background-color: #eee;
+      }
+      &:not(.seen) {
+        background-color: #f5d6c6;
+        animation: icon-pulse 1.5s ease infinite;
+      }
+
+      transition: all 300ms;
+      &.icon-list-enter-active, &.icon-list-leave-active {
+        animation: none;
+      }
+      &.icon-list-enter, &.icon-list-leave-to {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      &.icon-list-enter-to {
+        opacity: 1;
+        transform: translateY(0px);
+      }
+      &.icon-list-enter-to:not(.seen) {
+        transform: scale(1.15);
+      }
+
+      @keyframes icon-pulse {
+        0% { transform: scale(1.15); }
+        50% { transform: scale(0.85); }
+        100% { transform: scale(1.15); }
       }
     }
   }
