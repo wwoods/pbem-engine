@@ -44,9 +44,14 @@
     align-items: center;
 
     .ev-icon {
-      display: inline-block;
+      display: flex;
+      align-items: center;
+      justify-items: center;
+      justify-content: space-around;
       margin: 0.1rem;
-      padding: 1rem;
+      padding: 0.25rem;
+      height: 2rem;
+      width: 2rem;
       border-radius: 1rem;
 
       &.selected {
@@ -84,10 +89,10 @@
     }
   }
   &.right .icons {
-    width: 4rem;
+    padding-right: 0.25em;
   }
   &.bottom .icons {
-    height: 4rem;
+    padding-bottom: 0.25em;
   }
 }
 </style>
