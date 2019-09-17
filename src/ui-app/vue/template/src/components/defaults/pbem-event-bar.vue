@@ -170,6 +170,13 @@ export default Vue.extend({
     },
   },
   watch: {
+    '$pbem.playerId'(newVal: number) {
+      this.eventsAnim = {};
+      this.eventsKnown.clear();
+      this.eventsViewed.clear();
+      this.active = undefined;
+      this._eventsCheck(this.events);
+    },
     active(newVal: string | undefined, oldVal: string | undefined) {
       this._eventsCheck(this.events);
       const ts = 3; // timescale

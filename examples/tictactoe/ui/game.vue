@@ -13,13 +13,18 @@
     span(v-else) will win!
   div
     input(type="button" value="End turn" @click="turnEnd()")
-  span TODO: bot support plus locked slots.  gsap animation example, end game screen, player turn overlay, bot support, exit to lobby / menu
+  span TODO: bot support plus locked slots, player turn overlay, bot support
   pbem-event-bar
     template(v-slot:icon="{ ev }")
       span(v-if="ev.type === 'PbemEvent.UserActionError'") !
       span(v-else) ?
     template(v-slot:default="{ ev }")
       span Event content: {{ev.type}}: {{ev.game}}
+  pbem-splashscreen-pass-and-play
+  div(v-if="$pbem.state.gameEnded" style="position: absolute; left: 0; right: 0; top: 0; bottom: 0; background-color: #000; color: #fff; display: flex; align-items: center; justify-items: center; justify-content: space-around")
+    div
+      div Game over - {{$pbem.state.game.playerWillWin}} won
+      input(type="button" value="Return to menu" @click="$router.push({ name: 'menu' })")
 </template>
 
 <style lang="scss">
