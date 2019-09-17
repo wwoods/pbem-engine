@@ -1,7 +1,7 @@
 <template lang="pug">
   .pbem-event-bar(:class="classes")
     transition-group(name="icon-list" tag="div" class="icons")
-      .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active === ev.eventId ? (active = undefined) : (active = ev.eventId)"
+      .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active === ev.eventId ? (eventsViewed.has(ev.eventId) ? (active = undefined) : eventsViewed.add(ev.eventId) && classes.push('hi')) : (active = ev.eventId)"
           :class="{seen: eventsViewed.has(ev.eventId), showContent: eventsAnim[ev.eventId] && eventsAnim[ev.eventId].showContent}"
           :style="eventsAnim[ev.eventId] && eventsAnim[ev.eventId].style")
         .ev-icon-icon
@@ -87,18 +87,18 @@ $inactive_color: #eee;
       }
       &:not(.seen) {
         background-color: $unselected_color;
+      }
+      // Note: vue bug.  If animation is specified when DOM element mounted,
+      // cannot un-set animation for transitions.
+      &:not(.seen):not(.icon-list-enter-active):not(.icon-list-leave-active) {
         animation: icon-pulse 1.5s ease infinite;
       }
 
-      &.icon-list-enter-active, &.icon-list-leave-active {
-        animation: none;
-      }
       &.icon-list-enter, &.icon-list-leave-to {
-        transform: translateY(30px) scaleY(0);
+        transform: translateY(30px) scaleY(0) scale(1);
       }
-      &.fficon-list-enter-to:not(.seen) {
-        animation: none;
-        transform: scale(1.15);
+      &.icon-list-enter-to:not(.seen) {
+        transform: translateY(0) scaleY(1) scale(1.15);
       }
 
       @keyframes icon-pulse {
@@ -192,7 +192,7 @@ export default Vue.extend({
         tl.timeScale(tts).play();
       }
       if (newVal) {
-        this.eventsViewed.add(newVal);
+        //this.eventsViewed.add(newVal);
 
         const ea = this.eventsAnim[newVal];
         const style = ea.style;
