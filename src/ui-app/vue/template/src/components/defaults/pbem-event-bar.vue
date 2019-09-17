@@ -1,18 +1,27 @@
 <template lang="pug">
   .pbem-event-bar(:class="classes")
-    .info
-      .ev-info(v-for="ev of events" :key="ev.eventId" v-show="ev.eventId === active" @click="active = undefined")
-        slot(:ev="ev")
-          span Event {{ev.eventId}}: {{ev.type}}: {{ev.game}}
     transition-group(name="icon-list" tag="div" class="icons")
-      .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active = ev.eventId"
-          :class="{selected: active === ev.eventId, seen: eventsViewed.has(ev.eventId)}")
-        slot(name="icon" :ev="ev")
-          span {{ev.type}}
+      .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active === ev.eventId ? (active = undefined) : (active = ev.eventId)"
+          :class="{seen: eventsViewed.has(ev.eventId), showContent: eventsAnim[ev.eventId] && eventsAnim[ev.eventId].showContent}"
+          :style="eventsAnim[ev.eventId] && eventsAnim[ev.eventId].style")
+        .ev-icon-icon
+          slot(name="icon" :ev="ev")
+            span {{ev.type}}
+        .ev-icon-content
+          slot(:ev="ev")
+            span Event {{ev.eventId}}: {{ev.type}}: {{ev.game}}
 </template>
 
 <style scoped lang="scss">
+$selected_color: #fa9a85;
+$unselected_color: #f5d6c6;
+$inactive_color: #eee;
 .pbem-event-bar {
+  // pointer-events: none means that non-icon areas of the UI are not blocked
+  // by an invisible DOM element.  Must be restored with pointer-events: auto
+  // on children.
+  pointer-events: none;
+
   &.right {
     position: fixed;
     right: 0;
@@ -20,7 +29,13 @@
     bottom: 0;
 
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
+    justify-content: space-around;
+
+    .icons {
+      // TODO max-height: 100%;
+      // TODO overflow-y: scroll;
+    }
   }
   &.bottom {
     position: fixed;
@@ -29,55 +44,60 @@
     right: 0;
 
     display: flex;
-    flex-direction: column;
-  }
+    flex-direction: row;
+    justify-content: space-around;
 
-  .info {
-    display: inline-block;
+    .icons {
+      .ev-icon.showContent {
+        position: absolute;
+        left: -1.25rem;
+        right: -0.5rem;
+        bottom: -0.3rem;
+        max-width: none;
+        z-index: 1000;
+      }
+    }
   }
 
   .icons {
     display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
+    justify-items: center;
     justify-content: center;
-    align-items: center;
+    align-items: flex-end;
 
     .ev-icon {
+      flex-shrink: 0;
+      max-width: 25rem;
+      pointer-events: auto;
+
       display: flex;
-      align-items: center;
+      align-items: end;
       justify-items: center;
       justify-content: space-around;
       margin: 0.1rem;
       padding: 0.25rem;
-      height: 2rem;
-      width: 2rem;
       border-radius: 1rem;
-
+      transition: all 200ms;
+      transition-property: transform, background-color;
       &.selected {
-        background-color: #fa9a85 !important;
+        background-color: $selected_color !important;
       }
       &.seen {
-        background-color: #eee;
+        background-color: $inactive_color;
       }
       &:not(.seen) {
-        background-color: #f5d6c6;
+        background-color: $unselected_color;
         animation: icon-pulse 1.5s ease infinite;
       }
 
-      transition: all 300ms;
       &.icon-list-enter-active, &.icon-list-leave-active {
         animation: none;
       }
       &.icon-list-enter, &.icon-list-leave-to {
-        opacity: 0;
-        transform: translateY(30px);
+        transform: translateY(30px) scaleY(0);
       }
-      &.icon-list-enter-to {
-        opacity: 1;
-        transform: translateY(0px);
-      }
-      &.icon-list-enter-to:not(.seen) {
+      &.fficon-list-enter-to:not(.seen) {
+        animation: none;
         transform: scale(1.15);
       }
 
@@ -86,18 +106,48 @@
         50% { transform: scale(0.85); }
         100% { transform: scale(1.15); }
       }
+
+      .ev-icon-icon {
+        flex-shrink: 0;
+
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-items: center;
+        justify-content: space-around;
+
+        width: 2rem;
+        height: 2rem;
+      }
+
+      .ev-icon-content {
+        flex-grow: 1;
+        flex-shrink: 1;
+
+        display: none;
+        padding: 0.25rem;
+        margin: 0.1rem 0.1rem 0.1rem 0.25rem;
+        background-color: #fff;
+        border-radius: 1rem;
+      }
+      &.showContent .ev-icon-content {
+        display: inline-block;
+      }
     }
   }
   &.right .icons {
-    padding-right: 0.25em;
+    padding-right: 0.25rem;
+    flex-direction: column;
   }
   &.bottom .icons {
-    padding-bottom: 0.25em;
+    padding-bottom: 0.25rem;
+    flex-direction: row;
   }
 }
 </style>
 
 <script lang="ts">
+import {TimelineLite} from 'gsap/TweenMax';
 import Vue from 'vue';
 
 import {_PbemEvent} from 'pbem-engine/lib/game';
@@ -107,6 +157,8 @@ export default Vue.extend({
     return {
       active: undefined as undefined | string,
       classes: [] as string[],
+      eventsAnim: {} as {[key: string]: {style: {opacity: number},
+          showContent: boolean}},
       eventsKnown: new Set<string>(),
       eventsViewed: new Set<string>(),
     };
@@ -118,32 +170,42 @@ export default Vue.extend({
     },
   },
   watch: {
-    active(newVal: string | undefined) {
+    active(newVal: string | undefined, oldVal: string | undefined) {
+      this._eventsCheck(this.events);
+      const ts = 3; // timescale
+      if (oldVal && this.eventsAnim[oldVal]) {
+        const style = this.eventsAnim[oldVal].style;
+        const tl = new TimelineLite();
+        tl.to(style, 0.2, {opacity: 0});
+        tl.delay(0.1);
+        tl.set(this.eventsAnim[oldVal], {showContent: false});
+        tl.delay(0.1);
+        tl.to(style, 0.2, {opacity: 1});
+        const tts = ts * (newVal ? 4 : 1);
+        tl.timeScale(tts).play();
+      }
       if (newVal) {
         this.eventsViewed.add(newVal);
+
+        const ea = this.eventsAnim[newVal];
+        const style = ea.style;
+        const tl = new TimelineLite();
+        if (!ea.showContent) {
+          tl.set(style, {opacity: 1});
+          tl.to(style, 0.2, {opacity: 0});
+          tl.delay(0.1);
+          tl.set(this.eventsAnim[newVal], {showContent: true});
+        }
+        else {
+          tl.set(style, {opacity: 0});
+        }
+        tl.delay(0.1);
+        tl.to(style, 0.2, {opacity: 1});
+        tl.timeScale(ts).play();
       }
     },
     events(newVal: _PbemEvent[]) {
-      // Note: called twice when an event is re-freshed, first for the removal
-      // and then for the add.  If that behavior is ever not desired, probably
-      // best to handle it here with a $nextTick, rather than re-factoring the
-      // way events are replaced.
-      const eventsNew = new Set<string>(newVal.map(x => x.eventId));
-      if (this.active !== undefined && !eventsNew.has(this.active)) {
-        this.active = undefined;
-      }
-      if (this.active === undefined) {
-        for (const e of eventsNew.values()) {
-          if (!this.eventsKnown.has(e)) {
-            this.active = e;
-            break;
-          }
-        }
-      }
-      for (const e of this.eventsViewed.values()) {
-        if (!eventsNew.has(e)) this.eventsViewed.delete(e);
-      }
-      this.eventsKnown = eventsNew;
+      this._eventsCheck(newVal);
     },
   },
   mounted() {
@@ -161,6 +223,36 @@ export default Vue.extend({
       else {
         this.classes = ['bottom'];
       }
+    },
+    _eventsCheck(newVal: _PbemEvent[]) {
+      // Note: called twice when an event is re-freshed, first for the removal
+      // and then for the add.  If that behavior is ever not desired, probably
+      // best to handle it here with a $nextTick, rather than re-factoring the
+      // way events are replaced.
+      const eventsNew = new Set<string>(newVal.map(x => x.eventId));
+      if (this.active !== undefined && !eventsNew.has(this.active)) {
+        this.active = undefined;
+      }
+      for (const e of eventsNew.values()) {
+        if (!this.eventsKnown.has(e)) {
+          if (this.active === undefined) {
+            this.active = e;
+          }
+
+          Vue.set(this.eventsAnim, e, {
+            style: {opacity: 1},
+            showContent: this.active === e,
+          });
+        }
+      }
+      for (const e of this.eventsViewed.values()) {
+        if (!eventsNew.has(e)) {
+          // Remove
+          Vue.delete(this.eventsAnim, e);
+          this.eventsViewed.delete(e);
+        }
+      }
+      this.eventsKnown = eventsNew;
     },
   },
 });
