@@ -1,5 +1,6 @@
 <template lang="pug">
   .pbem-event-bar(:class="classes")
+    .blanket(:class="{dismissed: active === undefined}" @click="active = undefined")
     transition-group(name="icon-list" tag="div" class="icons")
       .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active === ev.eventId ? (active = undefined) : (active = ev.eventId)"
           :class="{seen: eventsViewed.has(ev.eventId), showContent: eventsAnim[ev.eventId] && eventsAnim[ev.eventId].showContent}"
@@ -48,6 +49,24 @@ $inactive_color: #eee;
     justify-content: space-around;
 
     .icons {
+    }
+  }
+
+  .blanket {
+    pointer-events: auto;
+    z-index: 1000;
+    position: fixed;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    opacity: 0.7;
+    background-color: #000;
+
+    transition: opacity 200ms;
+    &.dismissed {
+      pointer-events: none;
+      opacity: 0;
     }
   }
 
