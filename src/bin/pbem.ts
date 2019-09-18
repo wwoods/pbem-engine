@@ -50,47 +50,20 @@ program
 
     //Since e.g. webpack doesn't deal well with symlinks, we have to live-
     //copy the user's code into the project when it updates.
-
-    //Copy in the "game" and "ui" contents.
-    const gamePath = fs.existsSync("game.ts") ? "game.ts" : "game";
-    const uiPath = fs.existsSync("ui.ts") ? "ui.ts" : "ui";
-
-    const update = (src: string, dst: string) => {
-      const epsilonMs = 1000;
-
-      const srcStat = fs.statSync(src);
-      if (srcStat.isFile()) {
-        if (!fs.existsSync(dst)
-            || fs.statSync(dst).mtimeMs + epsilonMs < srcStat.mtimeMs) {
-          try {
-            fsExtra.copySync(src, dst, {preserveTimestamps: true});
-          }
-          catch (e) {
-            console.error(e);
-          }
-        }
-      }
-      else if (srcStat.isDirectory()) {
-        fs.readdirSync(src)
-          .map((name: string) => update(path.join(src, name), path.join(dst, name)));
-      }
-      else {
-        console.log(`TODO ${srcStat}`);
-      }
-    };
-
-    update(gamePath, path.join(pbem_client_src_folder, gamePath));
-    update(uiPath, path.join(pbem_client_src_folder, uiPath));
+    const gamePaths = _gameFilesGetPaths();
+    for (const g of gamePaths) {
+      _gameFilesUpdate(g, pbem_client_src_folder, true);
+    }
 
     const watchers = new Array<any>();
     const updates = new Map<string, number>();
-    for (const p of [gamePath, uiPath]) {
+    for (const p of gamePaths) {
       watchers.push(recursiveWatch(p, (fpath: string) => {
         const now = Date.now();
         updates.set(fpath, now);
         const updateWatched = () => {
           if (updates.get(fpath) === now && fs.existsSync(fpath)) {
-            update(fpath, path.join(pbem_client_src_folder, fpath));
+            _gameFilesUpdate(fpath, pbem_client_src_folder);
           }
         };
         setTimeout(updateWatched, 10);
@@ -138,6 +111,11 @@ program
   .description('build and serve the pbem-engine application in a way which may be downloaded as a PWA on a phone')
   .action((cmd: any) => {
     // TODO actually build project.. unify with serve code.  Allow --clean.
+
+    for (const g of _gameFilesGetPaths()) {
+      _gameFilesUpdate(g, pbem_client_src_folder, true);
+    }
+    
     execFileSync('npm', ['run', 'build'], {
       cwd: pbem_client_folder,
       stdio: 'inherit',
@@ -153,6 +131,41 @@ program
     });
   })
 ;
+
+
+function _gameFilesGetPaths() {
+  //Copy in the "game" and "ui" contents.
+  const gamePath = fs.existsSync("game.ts") ? "game.ts" : "game";
+  const uiPath = fs.existsSync("ui.ts") ? "ui.ts" : "ui";
+  return [gamePath, uiPath];
+}
+
+
+function _gameFilesUpdate(srcFile: string, buildSrcFolder: string, startup: boolean = false) {
+  const epsilonMs = startup ? 0 : 1000;
+  const dst = path.join(buildSrcFolder, srcFile);
+
+  const srcStat = fs.statSync(srcFile);
+  if (srcStat.isFile()) {
+    if (!fs.existsSync(dst)
+        || fs.statSync(dst).mtimeMs + epsilonMs < srcStat.mtimeMs) {
+      try {
+        fsExtra.copySync(srcFile, dst, {preserveTimestamps: true});
+      }
+      catch (e) {
+        console.error(e);
+      }
+    }
+  }
+  else if (srcStat.isDirectory()) {
+    fs.readdirSync(srcFile)
+      .map((name: string) => _gameFilesUpdate(path.join(srcFile, name),
+        buildSrcFolder, startup));
+  }
+  else {
+    console.log(`TODO ${srcStat}`);
+  }
+}
 
 
 program.parse(process.argv);
