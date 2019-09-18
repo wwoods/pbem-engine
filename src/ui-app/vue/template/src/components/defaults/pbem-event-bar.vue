@@ -98,7 +98,7 @@ $inactive_color: #eee;
       &.icon-list-enter, &.icon-list-leave-to {
         transform: translateY(30px) scaleY(0) scale(1);
       }
-      &.icon-list-enter-to:not(.seen) {
+      &.icon-list-enter-to:not(.seen):not(.showContent) {
         transform: translateY(0) scaleY(1) scale(1.15);
       }
 
@@ -204,7 +204,7 @@ export default Vue.extend({
           tl.set(style, {opacity: 1});
           tl.to(style, 0.2, {opacity: 0});
           tl.delay(0.1);
-          tl.set(this.eventsAnim[newVal], {showContent: true});
+          tl.set(ea, {showContent: true});
         }
         else {
           tl.set(style, {opacity: 0});
@@ -212,6 +212,13 @@ export default Vue.extend({
         tl.delay(0.1);
         tl.to(style, 0.2, {opacity: 1});
         tl.timeScale(ts).play();
+      }
+      else {
+        for (const e of this.events) {
+          if (!this.eventsViewed.has(e.eventId)) {
+            this.active = e.eventId;
+          }
+        }
       }
     },
     events(newVal: _PbemEvent[]) {
@@ -255,7 +262,7 @@ export default Vue.extend({
           });
         }
       }
-      for (const e of this.eventsViewed.values()) {
+      for (const e of this.eventsKnown.values()) {
         if (!eventsNew.has(e)) {
           // Remove
           Vue.delete(this.eventsAnim, e);
