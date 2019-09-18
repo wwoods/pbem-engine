@@ -56,8 +56,14 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
       this.userActionErrorClear();
     }
     const event = PbemEvent.create(eventId, eventType, game);
-    PbemEvent.queueAdd(this.uiEvents, event);
-    return event;
+    PbemEvent.queueRemoveIfExists(this.uiEvents, event.eventId);
+    // Wait to enqueue the event until after any previously registered events
+    // have been cleared.
+    ServerLink._$nextTick!(() => {
+      ServerLink._$nextTick!(() => {
+        PbemEvent.queueAdd(this.uiEvents, event);
+      });
+    });
   }
 
   async undo(act: _PbemAction) {
@@ -103,6 +109,7 @@ export class _ServerLink {
   _comm?: CommCommon;
   _settings?: _PbemSettings;
   _state?: _PbemState;
+  _$nextTick?: (cb: () => void) => void;
 
   async gameActions(action: _PbemAction[]) {
     const comm = this._comm;
@@ -170,10 +177,11 @@ export class _ServerLink {
     return await this._comm!.stagingStartGame<Settings>(settings);
   }
 
-  getActivePlayerView<State extends _PbemState>(): PlayerView<State> | undefined {
+  getActivePlayerView<State extends _PbemState>(nextTick: any): PlayerView<State> | undefined {
     if (this.localPlayerActive() < 0) {
       return undefined;
     }
+    this._$nextTick = nextTick;
     return this.localPlayerView as PlayerView<State>;
   }
 

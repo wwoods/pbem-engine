@@ -21,7 +21,7 @@ export const pbemPlugin = {
     // System actor.
     Object.defineProperty(Vue.prototype, '$pbem', {
       get() {
-        return ServerLink.getActivePlayerView();
+        return ServerLink.getActivePlayerView(this.$nextTick);
       },
     });
 
