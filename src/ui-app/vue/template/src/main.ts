@@ -16,7 +16,20 @@ window.addEventListener('beforeinstallprompt', function(e: any) {
   // alert('hi');
 });
 
-// TODO https://stackoverflow.com/a/54377386/160205 for PWA tips
+document.addEventListener('swUpdated', (event: any) => {
+  // TODO for now, always update; see https://medium.com/@dougallrich/give-users-control-over-app-updates-in-vue-cli-3-pwas-20453aedc1f2
+  // for UI tip.
+  const registration = event.detail;
+  if (!registration || !registration.waiting) return;
+  registration.waiting.postMessage('skipWaiting');
+}, {once: true});
+if (navigator && navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  });
+}
+
+// TODO https://medium.com/@dougallrich/give-users-control-over-app-updates-in-vue-cli-3-pwas-20453aedc1f2 for PWA updates
 // TODO https://josephuspaye.github.io/Keen-UI/ may as well integrate a lightweight library into the template.
 
 Vue.config.productionTip = false;

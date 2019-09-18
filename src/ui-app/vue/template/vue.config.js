@@ -13,6 +13,11 @@ module.exports = {
   },
   pwa: {
     name: packageJson.description,
+    workboxPluginMode: 'InjectManifest',
+    workboxOptions: {
+      swSrc: './src/serviceWorkerInject.js',
+      swDest: 'service-worker.js',
+    },
   },
 };
 
