@@ -1,7 +1,7 @@
 <template lang="pug">
   .pbem-event-bar(:class="classes")
     transition-group(name="icon-list" tag="div" class="icons")
-      .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active === ev.eventId ? (eventsViewed.has(ev.eventId) ? (active = undefined) : eventsViewed.add(ev.eventId) && classes.push('hi')) : (active = ev.eventId)"
+      .ev-icon(v-for="ev of events" :key="ev.eventId" @click="active === ev.eventId ? (active = undefined) : (active = ev.eventId)"
           :class="{seen: eventsViewed.has(ev.eventId), showContent: eventsAnim[ev.eventId] && eventsAnim[ev.eventId].showContent}"
           :style="eventsAnim[ev.eventId] && eventsAnim[ev.eventId].style")
         .ev-icon-icon
@@ -48,14 +48,16 @@ $inactive_color: #eee;
     justify-content: space-around;
 
     .icons {
-      .ev-icon.showContent {
-        position: absolute;
-        left: -1.25rem;
-        right: -0.5rem;
-        bottom: -0.3rem;
-        max-width: none;
-        z-index: 1000;
-      }
+    }
+  }
+
+  .icons {
+    .ev-icon.showContent {
+      position: fixed;
+      left: -1.25rem;
+      right: -0.5rem;
+      top: 20vh;
+      z-index: 1000;
     }
   }
 
@@ -67,7 +69,6 @@ $inactive_color: #eee;
 
     .ev-icon {
       flex-shrink: 0;
-      max-width: 25rem;
       pointer-events: auto;
 
       display: flex;
@@ -90,7 +91,7 @@ $inactive_color: #eee;
       }
       // Note: vue bug.  If animation is specified when DOM element mounted,
       // cannot un-set animation for transitions.
-      &:not(.seen):not(.icon-list-enter-active):not(.icon-list-leave-active) {
+      &:not(.seen):not(.showContent):not(.icon-list-enter-active):not(.icon-list-leave-active) {
         animation: icon-pulse 1.5s ease infinite;
       }
 
@@ -181,6 +182,8 @@ export default Vue.extend({
       this._eventsCheck(this.events);
       const ts = 3; // timescale
       if (oldVal && this.eventsAnim[oldVal]) {
+        this.eventsViewed.add(oldVal);
+
         const style = this.eventsAnim[oldVal].style;
         const tl = new TimelineLite();
         tl.to(style, 0.2, {opacity: 0});
