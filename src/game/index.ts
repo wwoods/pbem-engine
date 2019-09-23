@@ -184,6 +184,9 @@ export interface _PbemState {
   gameEnded: boolean;
   round: number;
   turnEnded: boolean[];
+  plugins: {
+    [key: string]: PbemPlugin,
+  };
 }
 export namespace _PbemState {
   export async function create<Settings extends _PbemSettings>(settings: Settings) {
@@ -195,6 +198,7 @@ export namespace _PbemState {
       gameEnded: false,
       round: 1,
       turnEnded: [],
+      plugins: {},
     };
     for (let i = 0, m = settings.players.length; i < m; i++) {
       if (settings.players[i] !== undefined) {
@@ -207,11 +211,17 @@ export namespace _PbemState {
       }
       s.turnEnded.push(false);
     }
+    if (_GameHooks.State!.plugins) {
+      s.plugins = _GameHooks.State!.plugins(s);
+      for (const p of Object.values(s.plugins)) {
+        p.init();
+      }
+    }
     await _GameHooks.State!.init(s);
     return s as _PbemState;
   }
 
-  export const Hooks: PbemState.Hooks<_PbemState, _PbemAction> = {
+  export const Hooks: PbemState.Hooks<PbemState<any, any, any>, _PbemAction> = {
     // Just to keep typescript happy.
     init(state) {},
     triggerCheck(pbem, sinceActionIndex) {
@@ -236,12 +246,26 @@ export namespace _PbemState {
   };
 }
 
-export interface PbemState<GameSettings, GameState> extends _PbemState {
+export interface PbemPlugin {
+  // State passed in constructor.
+  //new (state: PbemState<GameSettings, GameState, Plugins>);
+  init: {(): void};
+  load: {(): void};
+}
+
+export interface PbemState<GameSettings, GameState, Plugins extends {[key: string]: PbemPlugin} = {}> extends _PbemState {
   settings: PbemSettings<GameSettings>;
   game: GameState;
+  plugins: Plugins;
 }
+export type PbemState_Plugins<T> = T extends PbemState<any, any, infer U> ? U : never;
 export namespace PbemState {
   export interface Hooks<State extends _PbemState, Action extends _PbemAction> {
+    //GameSettings = never, GameState = never, Plugins = never> {
+    /** Create an object containing any plugins for the State.  Plugins are
+     * helper-modules which are not serialized with the state data, but which
+     * provide some features for dealing with the state data. */
+    plugins?: {(state: State): PbemState_Plugins<State>};
     /** Create the game by initializing state.game appropriately. */
     init: {(state: State): void};
     /** Convert a loaded game, if necessary. */
@@ -409,17 +433,18 @@ export namespace PbemAction {
 
 export const _GameHooks: {
   Settings?: PbemSettings.Hooks<_PbemSettings>,
-  State?: PbemState.Hooks<_PbemState, _PbemAction>,
+  State?: PbemState.Hooks<PbemState<any, any, any>, _PbemAction>,
 } = {};
 export let _GameActionTypes: any | undefined;
 export function _pbemGameSetup<
     Settings extends _PbemSettings,
-    State extends _PbemState,
+    State extends PbemState<any, any, any>,
     Action extends _PbemAction
   >(settings: PbemSettings.Hooks<Settings>,
-    state: PbemState.Hooks<State, Action>, actionTypes: any) {
+    state: PbemState.Hooks<State, Action>,
+    actionTypes: any) {
   _GameHooks.Settings = (settings as any) as PbemSettings.Hooks<_PbemSettings>;
-  _GameHooks.State = (state as any) as PbemState.Hooks<_PbemState, _PbemAction>;
+    _GameHooks.State = state as any;
   _GameActionTypes = actionTypes;
 }
 

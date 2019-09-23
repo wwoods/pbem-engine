@@ -27,7 +27,7 @@ export default Vue.extend({
   methods: {
     async loadGame() {
       try {
-        this.state = await ServerLink.gameLoad(this.$route.params.id);
+        this.state = await ServerLink.gameLoad<any>(this.$route.params.id);
         // So that Vue is aware of the $pbem object,  bind it here to make
         // it reactive.
         this.pbem = this.$pbem;

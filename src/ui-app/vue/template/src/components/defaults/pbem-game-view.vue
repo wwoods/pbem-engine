@@ -1,7 +1,8 @@
 <template lang="pug">
   .pbem-game-view
-    div Game view: {{state}}
-    div Player {{state.playerActive}}
+    div Game view: ...
+    //- {{$pbem.state}}
+    div Player {{$pbem.playerId}}
 </template>
 
 <script lang="ts">
@@ -9,8 +10,8 @@ import Vue from 'vue';
 import {State} from '@/game';
 
 export default Vue.extend({
-  props: {
-    state: Object as () => State,
+  mounted() {
+    console.log(this.$pbem.state);
   },
 });
 </script>
