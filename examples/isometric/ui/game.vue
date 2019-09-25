@@ -70,6 +70,7 @@ export class PixiIsometricObject {
   _color: number;
 
   // Our own texture for this object type
+  static _hitArea: {[key: string]: PIXI.Polygon} = {};
   static _texture: {[key: string]: PIXI.Texture} = {};
 
   constructor(color: number) {
@@ -101,8 +102,14 @@ export class PixiIsometricObject {
           .drawPolygon([w, h * 0.5, w, z + h * 0.5, w * 0.5, z + h, w * 0.5, h])
           .endFill();
       renderer.render(gfx, tex);
+      PixiIsometricObject._hitArea[key] = new PIXI.Polygon([
+          0, h * 0.5, w * 0.5, 0, w, h * 0.5, w, h * 0.5 + z, w * 0.5, h + z,
+          0, h * 0.5 + z,
+      ]);
     }
-    return PIXI.Sprite.from(PixiIsometricObject._texture[key]);
+    const s = PIXI.Sprite.from(PixiIsometricObject._texture[key]);
+    s.hitArea = PixiIsometricObject._hitArea[key];
+    return s;
   }
 
   init() {

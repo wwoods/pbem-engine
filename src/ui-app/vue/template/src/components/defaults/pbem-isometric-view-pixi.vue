@@ -1,5 +1,5 @@
 <template lang="pug">
-  .container(v-touch:moved="panStart" v-touch:moving="panMove" v-touch:end="panEnd" :vx="vx" :vy="vy")
+  .container(v-hammer:pan="onPan" v-hammer:panend="onPan" v-hammer:tap="onTap" :vx="vx" :vy="vy")
 </template>
 
 <style scoped lang="scss">
@@ -18,13 +18,13 @@
 <script lang="ts">
 import {PbemError} from 'pbem-engine/lib/error';
 import {Entity} from 'pbem-engine/lib/extra/ecs';
-import {PbemIsometric} from 'pbem-engine/lib/extra/isometric';
+import {PbemIsometric, PbemIsometricEntity} from 'pbem-engine/lib/extra/isometric';
 import Vue from 'vue';
 
 import * as PIXI from 'pixi.js';
 
 export interface PixiIsometricObject {
-  e: Entity;
+  e: PbemIsometricEntity;
   pixiObject: PIXI.Container;
   typeId: string;
 
@@ -62,8 +62,6 @@ export default Vue.extend({
       clientHeight: 0,
       alive: false,
       _panActive: false,
-      _panStartX: 0,
-      _panStartY: 0,
       _panStartVx: 0,
       _panStartVy: 0,
       // I *think* this stops Vue from tracking the Pixi data.
@@ -197,6 +195,8 @@ export default Vue.extend({
           v!.e = e.e;
           if (v!.pixiObject === undefined) {
             v!.pixiObject = v!.newPixiObject(renderer);
+            (v!.pixiObject as any).userData = v;
+            v!.pixiObject.interactive = true;
           }
           v!.init();
           stage.addChild(v!.pixiObject);
@@ -221,25 +221,31 @@ export default Vue.extend({
 
       this._pixi.renderer.render(stage);
     },
-    panStart(e: any) {
-      this._panActive = true;
-      const ee = e.touches ? e.touches[0] : e;
-      this._panStartX = ee.pageX;
-      this._panStartY = ee.pageY;
-      this._panStartVx = this.vx;
-      this._panStartVy = this.vy;
-    },
-    panMove(e: any) {
-      if (this._panActive) {
-        const ee = e.touches ? e.touches[0] : e;
-        const dx = ee.pageX - this._panStartX;
-        const dy = ee.pageY - this._panStartY;
-        this.vx = this._panStartVx - dx / this.tileWidth / this.vscale;
-        this.vy = this._panStartVy - dy / this.tileHeight / this.vscale;
+    onPan(e: any) {
+      if (!this._panActive) {
+        this._panActive = true;
+        this._panStartVx = this.vx;
+        this._panStartVy = this.vy;
+      }
+
+      this.vx = this._panStartVx - e.deltaX / this.tileWidth / this.vscale;
+      this.vy = this._panStartVy - e.deltaY / this.tileHeight / this.vscale;
+
+      if (e.type === 'panend') {
+        this._panActive = false;
       }
     },
-    panEnd(e: any) {
-      this._panActive = false;
+    onTap(e: any) {
+      const pt = e.center;
+      const pixiPt = new PIXI.Point();
+      const interactionManager = this._pixi.renderer.plugins.interaction;
+      interactionManager.mapPositionToPoint(pixiPt, pt.x, pt.y);
+      const pixiObj = interactionManager.hitTest(pixiPt, this._pixi.stage);
+      if (pixiObj !== undefined && pixiObj !== null) {
+        const v = (pixiObj as any).userData as PixiIsometricObject;
+        const t = v.e.tile!;
+        console.log(`Tapped ${t.x}, ${t.y}, ${t.z}`);
+      }
     },
     /** Note: tile (0, 0) is centered at (0, 0).
       For rendering order efficiency, x increases up and to the right, and y

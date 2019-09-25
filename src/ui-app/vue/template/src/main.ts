@@ -1,7 +1,7 @@
 import Vue from 'vue';
 import router from './router';
 import './registerServiceWorker';
-import Vue2TouchEvents from 'vue2-touch-events';
+import {VueHammer} from 'vue2-hammer';
 
 // Import PBEM components
 import App from './App.vue';
@@ -35,7 +35,7 @@ if (navigator && navigator.serviceWorker) {
 
 Vue.config.productionTip = false;
 
-Vue.use(Vue2TouchEvents);
+Vue.use(VueHammer);
 
 //Register our plugin
 Vue.use(pbemPlugin);
