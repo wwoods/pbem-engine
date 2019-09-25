@@ -85,7 +85,7 @@ export namespace State {
           tile: {
             x,
             y,
-            z: + 1,
+            z: z + 1,
             // TODO s: {
               // undefined for 1x1x1 OR
               // x, y, z, OR

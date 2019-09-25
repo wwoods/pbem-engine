@@ -5,6 +5,7 @@
   },
   "ui": {
     "dependencies": {
+      "pixi.js": "^5.1.5"
     },
     "devDependencies": {
     }

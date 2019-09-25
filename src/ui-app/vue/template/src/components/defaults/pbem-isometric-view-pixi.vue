@@ -1,34 +1,51 @@
 <template lang="pug">
-  svg.pbem-isometric-view-dom(v-touch:moved="panStart" v-touch:moving="panMove" v-touch:end="panEnd")
-    g.parent(:transform="`scale(${vscale}) translate(${tx} ${ty})`")
-      template(v-for="eDesc of elementsVisible")
-        g.obj(:key="eDesc.e.id" :transform="'translate(' + eDesc.left + ' ' + eDesc.top + ')'" :tile="`${eDesc.e.tile.x}, ${eDesc.e.tile.y}`")
-          slot(:e="eDesc.e")
-            span {{eDesc.e.id}}
+  .container(v-touch:moved="panStart" v-touch:moving="panMove" v-touch:end="panEnd" :vx="vx" :vy="vy")
 </template>
 
 <style scoped lang="scss">
-.pbem-isometric-view-dom {
-  position: absolute;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  transform: translate3d(0, 0, 0);
-}
+  .container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
 </style>
 
 <script lang="ts">
 import {PbemError} from 'pbem-engine/lib/error';
+import {Entity} from 'pbem-engine/lib/extra/ecs';
 import {PbemIsometric} from 'pbem-engine/lib/extra/isometric';
 import Vue from 'vue';
+
+import * as PIXI from 'pixi.js';
+
+export interface PixiIsometricObject {
+  e: Entity;
+  pixiObject: PIXI.Container;
+  typeId: string;
+
+  newPixiObject(renderer: PIXI.Renderer): PIXI.Container;
+  init(): void;
+  update(dt: number): void;
+}
+
+export interface PixiData {
+  renderer: PIXI.Renderer,
+  stage: PIXI.Container,
+  renderTime: number,
+  spriteActive: {[id: string]: PixiIsometricObject},
+  spritePool: {[typeId: string]: PixiIsometricObject[]},
+}
 
 export default Vue.extend({
   props: {
     components: String,
+    pixiTypeGetId: Function, //Object as () => {(e: Entity): string},
+    pixiTypeFactory: Function, //Object as () => {(id: string): PixiIsometricObject},
     startView: String,
     tileWidth: Number,
     tileHeight: Number,
@@ -43,26 +60,42 @@ export default Vue.extend({
       vscale: 1,
       clientWidth: 0,
       clientHeight: 0,
+      alive: false,
       _panActive: false,
       _panStartX: 0,
       _panStartY: 0,
       _panStartVx: 0,
       _panStartVy: 0,
+      // I *think* this stops Vue from tracking the Pixi data.
+      _pixi: undefined as any as PixiData,
     };
   },
   watch: {
   },
   mounted() {
+    this.alive = true;
+    this._pixi = {
+      renderer: new PIXI.Renderer({ width: 800, height: 600 }),
+      stage: new PIXI.Container(),
+      renderTime: Date.now(),
+      spriteActive: {},
+      spritePool: {},
+    };
+    this._pixi.stage.sortableChildren = true;
     this.onResize();
     window.addEventListener('resize', this.onResize);
+    this.$el.appendChild(this._pixi.renderer.view);
 
     if (this.startView) {
       const p = this.startView.split(',').map(x => parseFloat(x));
       if (p.length !== 2) throw new PbemError(`startView must be form 'x, y'`);
       [this.vx, this.vy] = this._posTileToScreen(p[0], p[1]);
     }
+
+    this.p_renderFrame();
   },
   beforeDestroy() {
+    this.alive = false;
     window.removeEventListener('resize', this.onResize);
   },
   computed: {
@@ -83,25 +116,24 @@ export default Vue.extend({
       // Lower-left is min, min
       const ssx = w / this.tileWidth / scS;
       const ssy = h / this.tileHeight / scS;
-      const llx = this.vx - 0.5 * ssx;
-      const lly = this.vy + 0.5 * ssy;
+      const marg_all = 2; // tiles
+      const marg_bottom = 5; // tiles; temporary workaround for high elevation
+      const llx = this.vx - 0.5 * ssx - marg_all;
+      const lly = this.vy + 0.5 * ssy + marg_all + marg_bottom;
 
       const centers = [];
       let tileStart = this._posScreenToTile(llx, lly);
       tileStart = [Math.floor(tileStart[0]), Math.floor(tileStart[1])];
-      console.log(tileStart);
-      console.log(ssx);
-      console.log(ssy);
-      for (let x = 0, m = ssx + 1; x < m; x += 0.5) {
-        for (let y = 0, k = ssy + 1; y < k; y += 0.5) {
-          centers.push([tileStart[0] + x + y, tileStart[1] + x - y]);
+      for (let y = 0, k = ssy + 2 * marg_all + marg_bottom; y < k; y += 0.5) {
+        for (let x = 0, m = ssx + 2 * marg_all; x < m; x += 0.5) {
+          centers.push([tileStart[0] + x + y, tileStart[1] + y - x]);
         }
       }
       for (const center of centers) {
         for (const e of iso.getEntities(center[0], center[1], undefined,
             ...comps)) {
           const dim = iso.getDimAndMask(e.tile!);
-          //if (dim.sx !== center[0] || dim.sy !== center[1]) continue;
+          if (dim.sx !== center[0] || dim.sy !== center[1]) continue;
 
           const p = this._posTileToScreen(dim.sx, dim.sy);
           const w = dim.ex - dim.sx;
@@ -114,7 +146,6 @@ export default Vue.extend({
           });
         }
       }
-      r.sort((a, b) => a.zIndex - b.zIndex);
       return r;
     },
   },
@@ -122,6 +153,73 @@ export default Vue.extend({
     onResize() {
       this.clientWidth = this.$el.clientWidth;
       this.clientHeight = this.$el.clientHeight;
+      this._pixi.renderer.resize(this.clientWidth, this.clientHeight);
+    },
+    p_renderFrame() {
+      if (!this.alive) {
+        console.log('quitting render');
+        return;
+      }
+      requestAnimationFrame(this.p_renderFrame);
+
+      const now = Date.now();
+      const last = this._pixi.renderTime;
+      this._pixi.renderTime = now;
+      const dt = 1e-3 * Math.max(0, Math.min(1000, now - last));
+      const stage = this._pixi.stage;
+      const renderer = this._pixi.renderer;
+
+      const els = this.elementsVisible;
+      stage.position.set(this.tx, this.ty);
+      const sa = this._pixi.spriteActive;
+      const unseenIds = new Set<string>(Object.keys(sa));
+      const sp = this._pixi.spritePool;
+      for (const e of els) {
+        const eId = e.e.id;
+        let v: PixiIsometricObject | undefined = sa[eId];
+        if (v !== undefined) {
+          unseenIds.delete(eId);
+          v.e = e.e;
+          v.update(dt);
+        }
+        else {
+          const type = this.pixiTypeGetId(e.e);
+          const free = sp[type];
+          if (free !== undefined) {
+            v = free.pop();
+          }
+          if (v === undefined) {
+            v = this.pixiTypeFactory(type);
+          }
+
+          sa[eId] = v!;
+
+          v!.e = e.e;
+          if (v!.pixiObject === undefined) {
+            v!.pixiObject = v!.newPixiObject(renderer);
+          }
+          v!.init();
+          stage.addChild(v!.pixiObject);
+        }
+
+        v!.pixiObject.position.set(e.left, e.top);
+        v!.pixiObject.zIndex = e.zIndex;
+      }
+
+      for (const id of unseenIds) {
+        const v = sa[id]!;
+        delete sa[id];
+        delete v.e;
+
+        v.pixiObject.parent.removeChild(v.pixiObject);
+        let free = sp[v.typeId];
+        if (free === undefined) {
+          free = sp[v.typeId] = [];
+        }
+        free.push(v);
+      }
+
+      this._pixi.renderer.render(stage);
     },
     panStart(e: any) {
       this._panActive = true;
@@ -167,4 +265,3 @@ export default Vue.extend({
   },
 });
 </script>
-

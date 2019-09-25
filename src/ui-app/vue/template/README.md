@@ -1,5 +1,7 @@
 # template
 
+Leverages `vue2-touch-events`, `gsap`, and `vue`.
+
 ## Project setup
 ```
 npm install

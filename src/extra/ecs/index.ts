@@ -22,8 +22,9 @@ export interface PbemEcsPlugin<Entity> {
   ecsOnDestroy?: {(e: EntityWithId<Entity>): void};
 }
 
+export type Entity = {[key: string]: any};
 
-export type EntityWithId<Entity extends {[key: string]: any}> = Entity & {
+export type EntityWithId<EEntity extends Entity> = EEntity & {
   id: string,
 };
 
@@ -140,7 +141,8 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
       let usingAnd: boolean = true;
       for (const [id, minVal] of Object.entries(ecs[minName])) {
         let rr: EntityWithId<Entity> | undefined = {
-            id, minName: minVal} as any as EntityWithId<Entity>;
+            id} as any as EntityWithId<Entity>;
+        (rr as any)[minName] = minVal;
         for (const c of components) {
           if (c === minName) continue;
           if (c === undefined) {

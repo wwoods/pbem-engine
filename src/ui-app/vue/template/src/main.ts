@@ -1,6 +1,7 @@
 import Vue from 'vue';
 import router from './router';
 import './registerServiceWorker';
+import Vue2TouchEvents from 'vue2-touch-events';
 
 // Import PBEM components
 import App from './App.vue';
@@ -33,6 +34,8 @@ if (navigator && navigator.serviceWorker) {
 // TODO https://josephuspaye.github.io/Keen-UI/ may as well integrate a lightweight library into the template.
 
 Vue.config.productionTip = false;
+
+Vue.use(Vue2TouchEvents);
 
 //Register our plugin
 Vue.use(pbemPlugin);
