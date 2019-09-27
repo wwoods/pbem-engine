@@ -17,14 +17,20 @@
 
 <script lang="ts">
 import {PbemError} from 'pbem-engine/lib/error';
-import {Entity} from 'pbem-engine/lib/extra/ecs';
+import {PbemEntityWithId} from 'pbem-engine/lib/extra/ecs';
 import {PbemIsometric, PbemIsometricEntity} from 'pbem-engine/lib/extra/isometric';
 import Vue from 'vue';
 
 import * as PIXI from 'pixi.js';
 
 export interface PixiIsometricObject {
-  e: PbemIsometricEntity;
+  e: PbemEntityWithId<any>;
+  /* TODO it would be best to think about entities, local vs remote, and how this
+  render model should shake out.... maybe ecs.local?  Creates storage which is,
+  well, local... and
+  TODO no, use a precached entityWithId (not a string) here.  Not necessary to
+  get all of it, and we can add PIXI effects without updating any entity, etc
+  if we want something special on a select.*/
   pixiObject: PIXI.Container;
   typeId: string;
 
@@ -46,6 +52,7 @@ export default Vue.extend({
     components: String,
     pixiTypeGetId: Function, //Object as () => {(e: Entity): string},
     pixiTypeFactory: Function, //Object as () => {(id: string): PixiIsometricObject},
+    onTapEntity: Function, //{(e: PixiIsometricObject): void}
     startView: String,
     tileWidth: Number,
     tileHeight: Number,
@@ -140,7 +147,7 @@ export default Vue.extend({
             e,
             left: this.tileWidth * (p[0] - 0.5 * h),
             top: this.tileHeight * (p[1] - dim.sz * this.tileElevation - 0.5 * w),
-            zIndex: 0xffff + Math.round(-dim.sx - dim.sy + dim.sz * this.tileElevation),
+            zIndex: 0xffff + Math.round(16 * (-dim.sx - dim.sy + dim.sz * this.tileElevation)),
           });
         }
       }
@@ -245,6 +252,7 @@ export default Vue.extend({
         const v = (pixiObj as any).userData as PixiIsometricObject;
         const t = v.e.tile!;
         console.log(`Tapped ${t.x}, ${t.y}, ${t.z}`);
+        this.onTapEntity(v.e);
       }
     },
     /** Note: tile (0, 0) is centered at (0, 0).

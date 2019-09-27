@@ -1,8 +1,9 @@
 <template lang="pug">
   .game
-    pbem-isometric-view-pixi(
+    pbem-isometric-view-pixi(#pixiUi
         :tileWidth="tileWidth" :tileHeight="tileHeight" :tileElevation="tileElevation"
-        components="playerPiece boardPiece"
+        :onTapEntity="onTapEntity"
+        components="playerPiece boardPiece ui_shine"
         :pixiTypeGetId="pixiTypeGetId"
         :pixiTypeFactory="pixiTypeFactory"
         startView="8, 8")
@@ -23,10 +24,12 @@
 </style>
 
 <script lang="ts">
-import Vue from 'vue';
-import {EcsEntity} from '@/game';
+import {Action, EcsEntity, EcsEntityWithId} from '@/game';
 
+import {PbemEcs, PbemEcsPlugin} from 'pbem-engine/lib/extra/ecs';
 import * as PIXI from 'pixi.js';
+import {GlowFilter} from 'pixi-filters';
+import Vue from 'vue';
 
 const tileWidth = 80;
 const tileHeight = 40;
@@ -34,18 +37,126 @@ const tileElevation = 0.5;
 
 export type PixiTypeId = 'player' | 'board' | 'unknown';
 
+export class Plugin implements PbemEcsPlugin<EcsEntity> {
+  ecs!: PbemEcs<EcsEntity>;
+
+  ecsOnCreate(e: EcsEntityWithId) {
+  }
+
+  ecsOnUpdate(id: string, component: string, valNew: any, valOld: any) {
+    if (component !== 'ui_selected') {
+      return;
+    }
+
+    const e = this.ecs.get(id, undefined, 'tile', 'playerPiece');
+    if (e.playerPiece !== undefined) {
+      const t = e.tile!;
+
+      // Pixi containers are transient, so we don't want to interact with the
+      // pixi container directly.
+      this.ecs.update(e.id, {
+        ui_shine: true,
+      });
+
+      this.ecs.createUi({
+        tile: {
+          x: t.x + 1,
+          y: t.y,
+          z: t.z,
+        },
+        ui_target: {
+          type: 'action',
+          args: ['Move', e.id, t.x + 1, t.y],
+        },
+      });
+    }
+  }
+
+  ecsOnDestroy(e: EcsEntityWithId) {
+  }
+}
+
 export default Vue.extend({
   data() {
     return {
       tileWidth, tileHeight, tileElevation,
+      pixiUi: undefined as any,
+      ecsPlugin: new Plugin(),
     };
   },
   computed: {
+    $ecs() {
+      return this.$pbem.state.plugins.ecs;
+    },
     $iso() {
       return this.$pbem.state.plugins.iso;
     },
   },
+  mounted() {
+    this.ecsPlugin.ecs = this.$ecs;
+    this.$ecs.pluginAdd(this.ecsPlugin);
+  },
+  beforeDestroy() {
+    this.$ecs.pluginRemove(this.ecsPlugin);
+  },
   methods: {
+    onTapEntity(e: EcsEntityWithId) {
+      const et = e.tile!;
+      const ecs = this.$ecs;
+      const iso = this.$iso;
+
+      let stack = iso.getEntities(et.x, et.y, undefined, 'ui');
+
+      // ui elements have preference
+      const stack_ui = stack.filter(a => ecs.isUi(a));
+      if (stack_ui.length > 0) {
+        stack = stack_ui;
+
+        this.onTapUi(stack[0].id);
+      }
+      else {
+        stack.sort((a, b) => b.tile!.z - a.tile!.z);
+
+        // if there's a current selection, select below it.
+        const curSel = this.$ecs.getAll('ui_selected', 'tile');
+        if (curSel.length > 0
+            && et.x === curSel[0].tile!.x
+            && et.y === curSel[0].tile!.y) {
+            const z = curSel[0].tile!.z;
+          stack = stack.filter(a => a.tile!.z < z);
+        }
+
+        // Didn't tap on a UI element, at least.
+        this.onTapUi(undefined);
+
+        // Unset previous selection before setting new one
+        for (const c of curSel) {
+          this.$ecs.update(c.id, {ui_selected: undefined});
+        }
+      }
+
+      // select the new element.
+      if (stack.length > 0) {
+        this.$ecs.update(stack[0].id, {ui_selected: true});
+      }
+    },
+    onTapUi(id: string | undefined) {
+      if (id !== undefined) {
+        const e = this.$ecs.get(id, 'ui_target');
+        // TODO see how Vue gets around this, and if there's a way to ease the
+        // user's troubles.
+        if (e.ui_target!.type === 'action') {
+          // Typescript would complain about 0 or more arguments instead of
+          // 1 or more, but we know this next line is fine.
+          // @ts-ignore
+          this.$pbem.action(...e.ui_target!.args);
+        }
+      }
+
+      for (const o of this.$ecs.getAll('tile', 'ui_target')) {
+        this.$ecs.delete(o.id);
+      }
+    },
     pixiTypeGetId(e: EcsEntity): PixiTypeId {
       if (e.playerPiece !== undefined) return 'player';
       if (e.boardPiece !== undefined) return 'board';
@@ -64,7 +175,7 @@ export default Vue.extend({
 // TODO formalize interface
 export class PixiIsometricObject {
   // Properties populated by the isometric engine
-  e!: EcsEntity;
+  e!: EcsEntityWithId;
   pixiObject!: PIXI.Container;
 
   _color: number;
@@ -114,11 +225,23 @@ export class PixiIsometricObject {
 
   init() {
     // Set up any e.g. tweening properties based on our new object.
+    this.pixiObject.filters = [];
   }
 
   update(dt: number) {
     // Check for changes in entity state, animate anything, update tweens,
     // whatever.
+    if (this.e.ui_shine) {
+      if (this.pixiObject.filters.length === 0) {
+        this.pixiObject.filters = [
+          new GlowFilter(),
+        ];
+        this.pixiObject.filters[0].padding = 20;
+      }
+    }
+    else if (this.pixiObject.filters.length > 0) {
+      this.pixiObject.filters = [];
+    }
   }
 }
 

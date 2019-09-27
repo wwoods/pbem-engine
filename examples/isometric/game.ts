@@ -1,5 +1,5 @@
 import {PbemError, PbemEvent, PbemSettings, PbemState, PbemAction} from 'pbem-engine/lib/game';
-import {PbemEcs, PbemEcsState} from 'pbem-engine/lib/extra/ecs';
+import {PbemEcs, PbemEcsState, PbemEntityWithId} from 'pbem-engine/lib/extra/ecs';
 import {PbemIsometric, PbemIsometricEntity} from 'pbem-engine/lib/extra/isometric';
 
 export interface GameSettings {
@@ -23,7 +23,15 @@ export interface EcsEntity extends PbemIsometricEntity {
     player: number;
     type: number;
   };
+  ui_selected?: boolean;
+  ui_shine?: boolean;
+  ui_target?: {
+    type: 'action',
+    args: any[],
+  };
 }
+
+export type EcsEntityWithId = PbemEntityWithId<EcsEntity>;
 
 export interface GameState extends PbemEcsState {
   scores: number[];

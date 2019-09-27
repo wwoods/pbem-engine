@@ -5,7 +5,8 @@
   },
   "ui": {
     "dependencies": {
-      "pixi.js": "^5.1.5"
+      "pixi.js": "^5.1.5",
+      "pixi-filters": "^3.0.3"
     },
     "devDependencies": {
     }

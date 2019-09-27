@@ -1,4 +1,4 @@
-import {PbemEcs, PbemEcsState, PbemEcsPlugin, EntityWithId, PbemEcsNoMatchingEntityError} from '../ecs';
+import {PbemEcs, PbemEcsState, PbemEcsPlugin, PbemEntityWithId, PbemEcsNoMatchingEntityError} from '../ecs';
 import {PbemError} from '../../error';
 import {PbemPlugin, PbemState} from '../../game';
 
@@ -38,7 +38,7 @@ export class PbemIsometric<Entity extends PbemIsometricEntity> implements PbemPl
     }
   }
 
-  ecsOnCreate(e: EntityWithId<Entity>) {
+  ecsOnCreate(e: PbemEntityWithId<Entity>) {
     if (e.tile === undefined) return;
 
     this._objAdd(e);
@@ -47,19 +47,19 @@ export class PbemIsometric<Entity extends PbemIsometricEntity> implements PbemPl
   ecsOnUpdate(id: string, component: string, valNew: any, valOld: any) {
     if (component !== 'tile') return;
 
-    const oldE: EntityWithId<Entity> = { id, tile: valOld } as EntityWithId<Entity>;
-    const e: EntityWithId<Entity> = { id, tile: valNew } as EntityWithId<Entity>;
+    const oldE: PbemEntityWithId<Entity> = { id, tile: valOld } as PbemEntityWithId<Entity>;
+    const e: PbemEntityWithId<Entity> = { id, tile: valNew } as PbemEntityWithId<Entity>;
     this._objRemove(oldE);
     this._objAdd(e);
   }
 
-  ecsOnDestroy(e: EntityWithId<Entity>) {
+  ecsOnDestroy(e: PbemEntityWithId<Entity>) {
     if (e.tile === undefined) return;
     this._objRemove(e);
   }
 
-  getEntities(x: number, y: number, ...components: Array<string | undefined>): EntityWithId<Entity>[] {
-    const r: EntityWithId<Entity>[] = [];
+  getEntities(x: number, y: number, ...components: Array<string | undefined>): PbemEntityWithId<Entity>[] {
+    const r: PbemEntityWithId<Entity>[] = [];
 
     const coord = `${x},${y}`;
     const m = this._tileMap.get(coord);
@@ -130,7 +130,7 @@ export class PbemIsometric<Entity extends PbemIsometricEntity> implements PbemPl
     throw new PbemError("Fell out the bottom");
   }
 
-  _objAdd(e: EntityWithId<Entity>) {
+  _objAdd(e: PbemEntityWithId<Entity>) {
     const tile = e.tile!;
 
     const dims = this.getDimAndMask(tile);
@@ -141,7 +141,7 @@ export class PbemIsometric<Entity extends PbemIsometricEntity> implements PbemPl
     }
   }
 
-  _objRemove(e: EntityWithId<Entity>) {
+  _objRemove(e: PbemEntityWithId<Entity>) {
     const tile = e.tile!;
 
     const dims = this.getDimAndMask(tile);

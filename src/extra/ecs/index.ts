@@ -9,22 +9,24 @@ export interface Ecs {
 }
 
 
+/** Stores component values and the last entity ID created. */
 export interface PbemEcsState {
   ecs: Ecs;
   ecsLastId: number;
 }
 
 
-export interface PbemEcsPlugin<Entity> {
+export type PbemEntity = {[key: string]: any};
+
+
+export interface PbemEcsPlugin<Entity extends PbemEntity> {
   ecs: PbemEcs<Entity>;
-  ecsOnCreate?: {(e: EntityWithId<Entity>): void};
+  ecsOnCreate?: {(e: PbemEntityWithId<Entity>): void};
   ecsOnUpdate?: {(id: string, component: string, valNew: any, valOld: any): void};
-  ecsOnDestroy?: {(e: EntityWithId<Entity>): void};
+  ecsOnDestroy?: {(e: PbemEntityWithId<Entity>): void};
 }
 
-export type Entity = {[key: string]: any};
-
-export type EntityWithId<EEntity extends Entity> = EEntity & {
+export type PbemEntityWithId<Entity extends PbemEntity> = Entity & {
   id: string,
 };
 
@@ -35,17 +37,36 @@ export class PbemEcsNoMatchingEntityError extends PbemError {
   }
 }
 
+const _uiPrefixId = 'ui-';
+const _uiPrefixComponent = 'ui_';
 
-export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin {
-  ecs!: Ecs;
-  plugins: PbemEcsPlugin<Entity>[] = [];
+/** The ECS system implemented here has two separate but related storage
+ * systems: one for permanent objects in the game's state, and one for
+ * transient objects used by the UI.  Any component with a name starting 'ui_'
+ * will automatically be stored transiently.  Additionally, there is a
+ * createUi() function which creates an entity only in the local UI.  To normal
+ * game code, there is no distinction, so be careful not to let these elements
+ * interact unless desired.
+ *
+ * It should be impossible for one object to have component data for the same
+ * component in both the permanent and UI storages.
+ * */
+export class PbemEcs<Entity extends PbemEntity> implements PbemPlugin {
+  _ecs!: Ecs;
+  _plugins: PbemEcsPlugin<Entity>[] = [];
+
+  _ecsUi!: PbemEcsState;
 
   constructor(public state: PbemState<any, PbemEcsState, any>) {
   }
 
   init() {
-    this.state.game.ecs = this.ecs = {};
+    this.state.game.ecs = this._ecs = {};
     this.state.game.ecsLastId = 0;
+    this._ecsUi = {
+        ecs: {},
+        ecsLastId: 0,
+    };
     this.load();
   }
 
@@ -53,35 +74,54 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
   }
 
   pluginAdd(plugin: PbemEcsPlugin<Entity>) {
-    this.plugins.push(plugin);
+    this._plugins.push(plugin);
+  }
+
+  pluginRemove(plugin: PbemEcsPlugin<Entity>) {
+    const i = this._plugins.indexOf(plugin);
+    if (i < 0) throw new PbemError("No such plugin?");
+    this._plugins.splice(i, 1);
   }
 
   /** Actual implementation. */
   create(entity: Entity): string {
-    const eResult = entity as EntityWithId<Entity>;
-    const ecs = this.ecs;
+    const eResult = entity as PbemEntityWithId<Entity>;
+    const ecs = this._ecs;
     this.state.game.ecsLastId++;
     const eid = `${this.state.game.ecsLastId}`;
     eResult.id = eid;
-    for (const [k, v] of Object.entries(entity)) {
-      if (!ecs.hasOwnProperty(k)) ecs[k] = {};
-      ecs[k][eid] = v;
-    }
-    this._hook('ecsOnCreate', eResult);
+    this._create(eResult);
     return eid;
   }
 
-  destroy(id: string): void {
-    const ecs = this.ecs;
-    const entity: Entity = { id } as EntityWithId<Entity>;
-    for (const [k, v] of Object.entries(ecs)) {
-      const q = v[id];
-      if (q !== undefined) {
-        (entity as any)[k] = q;
-        delete v[id];
+  createUi(entity: Entity): string {
+    const eResult = entity as PbemEntityWithId<Entity>;
+    const ecsUi = this._ecsUi;
+    ecsUi.ecsLastId++;
+    const eid = `${_uiPrefixId}${ecsUi.ecsLastId}`;
+    eResult.id = eid;
+    this._create(eResult);
+    return eid;
+  }
+
+  delete(id: string): void {
+    const entity = { id } as PbemEntityWithId<Entity>;
+    const allEcs = this.isUi(entity) ? [this._ecsUi.ecs] : [
+        this._ecs, this._ecsUi.ecs];
+    for (const ecs of allEcs) {
+      for (const [k, v] of Object.entries(ecs)) {
+        const q = v[id];
+        if (q !== undefined) {
+          (entity as any)[k] = q;
+          delete v[id];
+        }
       }
     }
     this._hook('ecsOnDestroy', entity);
+  }
+
+  isUi(entity: PbemEntityWithId<Entity>) {
+    return entity.id.startsWith(_uiPrefixId);
   }
 
   /** Gets component which MUST contain all specified components.  Can add
@@ -89,9 +129,11 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
    *
    * ecs.get('id', 'tile', undefined, 'maybeA', 'maybeB');
    * */
-  get(id: string, ...components: Array<string | undefined>): EntityWithId<Entity> {
-    const r: EntityWithId<Entity> = {id} as EntityWithId<Entity>;
-    const ecs = this.ecs;
+  get(id: string, ...components: Array<string | undefined>): PbemEntityWithId<Entity> {
+    const r: PbemEntityWithId<Entity> = {id} as PbemEntityWithId<Entity>;
+    const isUi = this.isUi(r);
+    const ecs = isUi ? this._ecsUi.ecs : this._ecs;
+    const ecsUi = this._ecsUi.ecs;
     let usingAnd: boolean = true;
     for (const c of components) {
       if (c === undefined) {
@@ -99,7 +141,9 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
         continue;
       }
 
-      const v = ecs[c][id];
+      const e = c.startsWith(_uiPrefixComponent) ? ecsUi : ecs;
+      const ec = e[c];
+      const v = ec ? ec[id] : undefined;
       if (v === undefined) {
         if (usingAnd) {
           // This would be an error.  If we're fetching a component by ID, we
@@ -115,9 +159,8 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
     return r;
   }
 
-  getAll(...components: Array<string | undefined>): EntityWithId<Entity>[] {
-    const r: EntityWithId<Entity>[] = [];
-    const ecs = this.ecs;
+  getAll(...components: Array<string | undefined>): PbemEntityWithId<Entity>[] {
+    const r: PbemEntityWithId<Entity>[] = [];
     let minLen: number = 1e30;
     let minName: string | undefined;
     for (const c of components) {
@@ -125,12 +168,22 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
         break;
       }
 
-      const ec = ecs[c];
-      // If any component doesn't exist, then the final result is always an
-      // empty array.
-      if (ec === undefined) return r;
+      let count: number = 0;
 
-      const count = Object.keys(ec).length;
+      // Check normal and UI storage
+      for (const ecs of [this._ecs, this._ecsUi.ecs]) {
+        const ec = ecs[c];
+        if (ec === undefined) continue;
+
+        count += Object.keys(ec).length;
+      }
+
+      if (count === 0) {
+        // If any component doesn't exist, then the final result is always an
+        // empty array.
+        return r;
+      }
+
       if (count < minLen) {
         minLen = count;
         minName = c;
@@ -138,31 +191,21 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
     }
 
     if (minName !== undefined) {
-      let usingAnd: boolean = true;
-      for (const [id, minVal] of Object.entries(ecs[minName])) {
-        let rr: EntityWithId<Entity> | undefined = {
-            id} as any as EntityWithId<Entity>;
-        (rr as any)[minName] = minVal;
-        for (const c of components) {
-          if (c === minName) continue;
-          if (c === undefined) {
-            usingAnd = false;
+      const c1 = this._ecs[minName];
+      const c2 = this._ecsUi.ecs[minName];
+      const ids1 = c1 !== undefined ? Object.keys(c1) : [];
+      const ids2 = c2 !== undefined ? Object.keys(c2) : [];
+      const ids = ids1.concat(ids2);
+      for (const id of ids) {
+        try {
+          const rr = this.get(id, ...components);
+          r.push(rr);
+        }
+        catch (e) {
+          if (e instanceof PbemEcsNoMatchingEntityError) {
             continue;
           }
-
-          const v = ecs[c][id];
-          if (v === undefined) {
-            if (usingAnd) {
-              rr = undefined;
-              break;
-            }
-          }
-          else {
-            (rr as any)[c] = v;
-          }
-        }
-        if (rr !== undefined) {
-          r.push(rr);
+          throw e;
         }
       }
     }
@@ -170,27 +213,51 @@ export class PbemEcs<Entity extends {[key: string]: any}> implements PbemPlugin 
   }
 
   update(id: string, components: Entity) {
-    const ecs = this.ecs;
-    for (const [k, v] of Object.entries(components)) {
-      if (!ecs.hasOwnProperty(k)) ecs[k] = {};
+    const e = components as PbemEntityWithId<Entity>;
+    e.id = id;
+    const oldVals = this._update(e);
 
-      const valOld = ecs[k][id];
-      if (valOld === undefined) {
-        this._hook('ecsOnUpdate', id, k, v, valOld);
-        ecs[k][id] = v;
-      }
-      else {
-        const valNew = Object.assign(valOld, v);
-        this._hook('ecsOnUpdate', id, k, valNew, valOld);
-        ecs[k][id] = valNew;
-      }
+    for (const [k, v] of Object.entries(components)) {
+      this._hook('ecsOnUpdate', id, k, v, oldVals[k]);
     }
   }
 
   _hook(name: string, ...args: any[]) {
-    for (const p of this.plugins) {
+    for (const p of this._plugins) {
       (p as any)[name](...args);
     }
   }
+
+  /** Helper function to populate components and call hook.
+   * */
+  _create(entity: PbemEntityWithId<Entity>): void {
+    this._update(entity);
+    this._hook('ecsOnCreate', entity);
+  }
+
+  /** Update an entity (to game state or UI state appropriately) without
+   * calling any hooks.
+   * */
+  _update(entity: PbemEntityWithId<Entity>): PbemEntityWithId<Entity> {
+    const eid = entity.id;
+    const ecs = this.isUi(entity) ? this._ecsUi.ecs : this._ecs;
+    const ecsUi = this._ecsUi.ecs;
+    const old = {id: entity.id} as any;
+    for (const [k, v] of Object.entries(entity)) {
+      if (k === 'id') continue;
+      const e = k.startsWith(_uiPrefixComponent) ? ecsUi : ecs;
+      if (!e.hasOwnProperty(k)) e[k] = {};
+      const ek = e[k];
+      old[k] = ek[eid];
+      if (v === undefined) {
+        delete ek[eid];
+      }
+      else {
+        ek[eid] = v;
+      }
+    }
+    return old as PbemEntityWithId<Entity>;
+  }
+
 }
 
