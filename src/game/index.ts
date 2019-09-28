@@ -89,14 +89,14 @@ export interface _PbemPlayerView {
   playerId: number;  // Will be -1 for PbemServerView.
   state: Readonly<any>;
 }
-export interface PbemPlayerView<State extends _PbemState> extends _PbemPlayerView {
+export interface PbemPlayerView<State extends _PbemState, Action extends _PbemAction> extends _PbemPlayerView {
   state: Readonly<State>;
   uiEvents: Array<_PbemEvent>;
 
   readonly hasPending: boolean;
 
   // Player events must communicate with the server, and so are asynchronous.
-  action(type: string, ...args: any[]): Promise<void>;
+  action(action: Action): Promise<void>;
   // Note that players cannot perform multiple actions at once.
 
   // Register UI Events this way, so that triggers are handled appropriately.
@@ -106,13 +106,11 @@ export interface PbemPlayerView<State extends _PbemState> extends _PbemPlayerVie
   //  instead.
   //  uiEvent<E extends PbemEvent._Type<T>, T>(eventType: E, game: T): void;
 }
-export interface PbemServerView<State extends _PbemState> extends _PbemPlayerView {
+export interface PbemServerView<State extends _PbemState, Action extends _PbemAction> extends _PbemPlayerView {
   state: Readonly<State>;
 
   // Server events happen locally, and are thus not asynchronous.
-  action(type: string, ...args: any[]): void;
-  // Server can perform several actions at once as a shortcut.
-  actionMulti(...actions: Array<[string, ...any[]]>): void;
+  action(action: Action): void;
 }
 
 
@@ -177,7 +175,7 @@ export namespace PbemSettings {
 
 
 export interface _PbemState {
-  actions: readonly _PbemAction[];
+  actions: readonly PbemActionWithDetails<_PbemAction>[];
   events: Readonly<Array<_PbemEvent[]>>;
   settings: Readonly<_PbemSettings>;
   game: any;
@@ -233,13 +231,13 @@ export namespace _PbemState {
       }
       if (allDone) {
         // All ready - advance round.
-        pbem.action('PbemAction.RoundEnd');
+        pbem.action({type: 'PbemAction.RoundEnd'});
 
         const re = _GameHooks.State!.roundEnd;
         if (re !== undefined) re(pbem);
 
         if (!pbem.state.gameEnded) {
-          pbem.action('PbemAction.RoundStart');
+          pbem.action({type: 'PbemAction.RoundStart'});
         }
       }
     },
@@ -271,10 +269,10 @@ export namespace PbemState {
     /** Convert a loaded game, if necessary. */
     load?: {(state: State): void};
     /** Check for triggers after any action. */
-    triggerCheck?: {(pbem: PbemServerView<State>, sinceActionIndex: number): void};
+    triggerCheck?: {(pbem: PbemServerView<State, Action>, sinceActionIndex: number): void};
     /** Do something at end of round (actions added are added before the
      * PbemAction.NewRound action). */
-    roundEnd?: {(pbem: PbemServerView<State>): void};
+    roundEnd?: {(pbem: PbemServerView<State, Action>): void};
   }
 
 
@@ -292,31 +290,31 @@ export namespace PbemState {
 }
 
 
-export interface _PbemAction {
-  type: any;
+export interface PbemActionDetails {
   playerOrigin: number;
   actionId: string;
   actionGrouped: boolean;
-  game: any;
 }
+export interface _PbemAction {
+  type: any;
+  game?: any;
+}
+export type PbemActionWithDetails<Action extends _PbemAction> = PbemActionDetails & Action;
+
 export namespace _PbemAction {
   let _actionId: number = 0;
-  export function create(type: string, ...args: any[]): _PbemAction {
-    const a: _PbemAction = {
-      type,
+  export function create(action: Readonly<_PbemAction>): PbemActionWithDetails<_PbemAction> {
+    if (action.type === undefined) {
+      // Note that action.game may be undefined
+      throw new PbemError(`Undefined action: ${action}`);
+    }
+
+    const a: PbemActionWithDetails<_PbemAction> = Object.assign({
       playerOrigin: -1,
       actionId: `l${_actionId}`,
       actionGrouped: false,
-      game: {},
-    };
+    }, action);
     _actionId++;
-    const ns = _PbemAction.resolve(type);
-    if (ns.init !== undefined) {
-      ns.init(a, ...args);
-    }
-    else if (args.length > 0) {
-      throw new PbemError(`No PbemAction.Hooks.init() for ${type}, but args`);
-    }
     return a;
   }
   export function resolve(type: string): PbemAction.Hooks<_PbemState, _PbemAction> {
@@ -341,14 +339,13 @@ export interface PbemAction<GameActionType, GameAction> extends _PbemAction {
   game: GameAction;
 }
 export namespace PbemAction {
-  export interface Hooks<State, Action> {
+  export interface Hooks<State, Action extends _PbemAction> {
     // TODO ensure error if no init() specified but args were.
-    init?: {(action: Action, ...args:any): void};
-    validate?: {(state: Readonly<State>, action: Readonly<Action>): void};
-    setup?: {(state: Readonly<State>, action: Action): void};
-    forward: {(state: State, action: Readonly<Action>): void};
-    validateBackward?: {(state: Readonly<State>, action: Readonly<Action>): void};
-    backward: {(state: State, action: Readonly<Action>): void};
+    validate?: {(state: Readonly<State>, action: Readonly<PbemActionWithDetails<Action>>): void};
+    setup?: {(state: Readonly<State>, action: PbemActionWithDetails<Action>): void};
+    forward: {(state: State, action: Readonly<PbemActionWithDetails<Action>>): void};
+    validateBackward?: {(state: Readonly<State>, action: Readonly<PbemActionWithDetails<Action>>): void};
+    backward: {(state: State, action: Readonly<PbemActionWithDetails<Action>>): void};
   }
 
   export namespace Types {

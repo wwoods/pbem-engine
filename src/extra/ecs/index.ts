@@ -117,6 +117,8 @@ export class PbemEcs<Entity extends PbemEntity> implements PbemPlugin {
         }
       }
     }
+    // TEMP reactivity hack
+    this._ecsUi.ecs = Object.assign({}, this._ecsUi.ecs);
     this._hook('ecsOnDestroy', entity);
   }
 
@@ -231,6 +233,8 @@ export class PbemEcs<Entity extends PbemEntity> implements PbemPlugin {
   /** Helper function to populate components and call hook.
    * */
   _create(entity: PbemEntityWithId<Entity>): void {
+    // TEMP Vue reactivity hack.
+    this._ecsUi.ecs = Object.assign({}, this._ecsUi.ecs);
     this._update(entity);
     this._hook('ecsOnCreate', entity);
   }

@@ -3,7 +3,7 @@
     pbem-isometric-view-pixi(#pixiUi
         :tileWidth="tileWidth" :tileHeight="tileHeight" :tileElevation="tileElevation"
         :onTapEntity="onTapEntity"
-        components="playerPiece boardPiece ui_shine"
+        components="playerPiece boardPiece ui_shine ui_target"
         :pixiTypeGetId="pixiTypeGetId"
         :pixiTypeFactory="pixiTypeFactory"
         startView="8, 8")
@@ -24,21 +24,23 @@
 </style>
 
 <script lang="ts">
-import {Action, EcsEntity, EcsEntityWithId} from '@/game';
+import {EcsEntity, EcsEntityWithId} from '@/game';
 
 import {PbemEcs, PbemEcsPlugin} from 'pbem-engine/lib/extra/ecs';
+import {PbemIsometric} from 'pbem-engine/lib/extra/isometric';
 import * as PIXI from 'pixi.js';
 import {GlowFilter} from 'pixi-filters';
 import Vue from 'vue';
 
-const tileWidth = 80;
-const tileHeight = 40;
-const tileElevation = 0.5;
+const tileWidth = 100;
+const tileHeight = 50;
+const tileElevation = 1;
 
-export type PixiTypeId = 'player' | 'board' | 'unknown';
+export type PixiTypeId = 'player' | 'board' | 'target' | 'unknown';
 
 export class Plugin implements PbemEcsPlugin<EcsEntity> {
   ecs!: PbemEcs<EcsEntity>;
+  iso!: PbemIsometric<EcsEntity>;
 
   ecsOnCreate(e: EcsEntityWithId) {
   }
@@ -50,25 +52,43 @@ export class Plugin implements PbemEcsPlugin<EcsEntity> {
 
     const e = this.ecs.get(id, undefined, 'tile', 'playerPiece');
     if (e.playerPiece !== undefined) {
-      const t = e.tile!;
-
       // Pixi containers are transient, so we don't want to interact with the
       // pixi container directly.
       this.ecs.update(e.id, {
-        ui_shine: true,
+        ui_shine: valNew !== undefined ? true : false,
       });
 
-      this.ecs.createUi({
-        tile: {
-          x: t.x + 1,
-          y: t.y,
-          z: t.z,
-        },
-        ui_target: {
-          type: 'action',
-          args: ['Move', e.id, t.x + 1, t.y],
-        },
-      });
+      if (valNew === undefined) return;
+
+      const t = e.tile!;
+      for (const x of [-1, 0, 1]) {
+        for (const y of [-1, 0, 1]) {
+          if (x === 0 && y === 0) continue;
+          const tx = t.x + x;
+          const ty = t.y + y;
+          const z = this.iso.getMaxZ(tx, ty, 'boardPiece')
+          if (z === undefined) continue;
+          this.ecs.createUi({
+            tile: {
+              x: tx,
+              y: ty,
+              z: z + 1,
+            },
+            ui_target: {
+              type: 'action',
+              action: {
+                type: 'Move',
+                game: {
+                  entity: e.id,
+                  x: tx,
+                  y: ty,
+                  z: z + 1,
+                },
+              },
+            },
+          });
+        }
+      }
     }
   }
 
@@ -94,6 +114,7 @@ export default Vue.extend({
   },
   mounted() {
     this.ecsPlugin.ecs = this.$ecs;
+    this.ecsPlugin.iso = this.$iso;
     this.$ecs.pluginAdd(this.ecsPlugin);
   },
   beforeDestroy() {
@@ -105,7 +126,7 @@ export default Vue.extend({
       const ecs = this.$ecs;
       const iso = this.$iso;
 
-      let stack = iso.getEntities(et.x, et.y, undefined, 'ui');
+      let stack = iso.getEntities(et.x, et.y, undefined);
 
       // ui elements have preference
       const stack_ui = stack.filter(a => ecs.isUi(a));
@@ -149,7 +170,8 @@ export default Vue.extend({
           // Typescript would complain about 0 or more arguments instead of
           // 1 or more, but we know this next line is fine.
           // @ts-ignore
-          this.$pbem.action(...e.ui_target!.args);
+          this.$pbem.action(e.ui_target!.action!)
+            .then(() => {this.$ecs.getAll('ui_selected').map(a => this.$ecs.update(a.id, {ui_selected: undefined}))});
         }
       }
 
@@ -160,17 +182,52 @@ export default Vue.extend({
     pixiTypeGetId(e: EcsEntity): PixiTypeId {
       if (e.playerPiece !== undefined) return 'player';
       if (e.boardPiece !== undefined) return 'board';
+      if (e.ui_target !== undefined) return 'target';
       return 'unknown';
     },
     pixiTypeFactory(id: PixiTypeId) {
       return {
         player: new PixiIsometricObject(0x00ff00),
         board: new PixiIsometricObject(0xff0000),
+        target: new PixiTargetObject(),
         unknown: new PixiIsometricObject(0x0000ff),
       }[id];
     },
   },
 });
+
+export class PixiTargetObject {
+  static _hitArea: {[key: string]: any} = {};
+  static _texture: {[key: string]: PIXI.Texture} = {};
+
+  constructor() {}
+
+  newPixiObject(renderer: PIXI.Renderer) {
+    const key = 'nokey';
+    if (PixiTargetObject._texture[key] === undefined) {
+      const w = tileWidth, h = tileHeight, z = tileElevation * tileHeight;
+      const tex = PixiTargetObject._texture[key] = new PIXI.RenderTexture(
+          new PIXI.BaseRenderTexture({
+            width: w,
+            height: h + z
+          }));
+      const color = 0x4444ff;
+
+      const gfx = new PIXI.Graphics();
+      const s = 0.35;
+      const shape = new PIXI.Ellipse(w * 0.5, z + h * 0.5, w * s, h * s);
+      gfx.beginFill(color).drawShape(shape);
+      renderer.render(gfx, tex);
+      PixiTargetObject._hitArea[key] = shape;
+    }
+    const s = PIXI.Sprite.from(PixiTargetObject._texture[key]);
+    s.hitArea = PixiTargetObject._hitArea[key];
+    return s;
+  }
+
+  init() {}
+  update(dt: number) {}
+}
 
 // TODO formalize interface
 export class PixiIsometricObject {

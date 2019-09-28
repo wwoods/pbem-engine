@@ -2,7 +2,7 @@
 import assert from 'assert';
 
 import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemPlayer,
-  PbemPlayerView, PbemAction, PbemEvent, PbemState, _GameActionTypes} from '../game';
+  PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
 export {ServerError} from '../server/common';
 
@@ -12,7 +12,7 @@ import {IdPrefix, CommTypes} from './factory';
 /** Note that for UI reactivity, all players share the same "PlayerView" object.
  * Only the properties get changed.
  * */
-export class PlayerView<State extends _PbemState> implements PbemPlayerView<State> {
+export class PlayerView<State extends _PbemState, Action extends _PbemAction> implements PbemPlayerView<State, Action> {
   // This class is exposed to end-user code, so "playerId" might be more
   // intuitive than just "id".
   playerId: number;
@@ -36,12 +36,12 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
     return a;
   }
 
-  async action(type: string, ...args: any[]) {
+  async action(action: Action) {
     //return this.actionMulti([type, ...args]);
     try {
       this.userActionErrorClear();
 
-      const act = _PbemAction.create(type, ...args);
+      const act = _PbemAction.create(action);
       act.playerOrigin = this.playerId;
       await ServerLink.gameActions([act]);
     }
@@ -66,7 +66,7 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
     });
   }
 
-  async undo(act: _PbemAction) {
+  async undo(act: PbemActionWithDetails<_PbemAction>) {
     try {
       this.userActionErrorClear();
 
@@ -92,7 +92,7 @@ export class PlayerView<State extends _PbemState> implements PbemPlayerView<Stat
  * information to remote.
  * */
 export class _ServerLink {
-  actionsPending: Array<_PbemAction> = [];
+  actionsPending: Array<PbemActionWithDetails<_PbemAction>> = [];
   _localPlayerActive: number = -1;
   localPlayerActive(newPlayer?: number) {
     if (newPlayer !== undefined) {
@@ -104,14 +104,15 @@ export class _ServerLink {
     return this._localPlayerActive;
   }
   localPlayers: Array<PbemPlayer> = [];
-  localPlayerView = new PlayerView<_PbemState>();
+  localPlayerView = new PlayerView<_PbemState, _PbemAction>();
 
   _comm?: CommCommon;
   _settings?: _PbemSettings;
   _state?: _PbemState;
   _$nextTick?: (cb: () => void) => void;
 
-  async gameActions(action: _PbemAction[]) {
+  /** Invoke the specified actions on the remote server. */
+  async gameActions(action: PbemActionWithDetails<_PbemAction>[]) {
     const comm = this._comm;
     if (comm === undefined) {
       throw new ServerError.ServerError('Bad comm');
@@ -144,7 +145,7 @@ export class _ServerLink {
     return this._state! as State;
   }
 
-  async gameUndo(act: _PbemAction) {
+  async gameUndo(act: PbemActionWithDetails<_PbemAction>) {
     const comm = this._comm;
     if (comm === undefined) {
       throw new ServerError.ServerError('Bad comm');
@@ -177,12 +178,12 @@ export class _ServerLink {
     return await this._comm!.stagingStartGame<Settings>(settings);
   }
 
-  getActivePlayerView<State extends _PbemState>(nextTick: any): PlayerView<State> | undefined {
+  getActivePlayerView<State extends _PbemState, Action extends _PbemAction>(nextTick: any): PlayerView<State, Action> | undefined {
     if (this.localPlayerActive() < 0) {
       return undefined;
     }
     this._$nextTick = nextTick;
-    return this.localPlayerView as PlayerView<State>;
+    return this.localPlayerView as PlayerView<State, Action>;
   }
 
   async _commSwitch(id: string): Promise<void> {

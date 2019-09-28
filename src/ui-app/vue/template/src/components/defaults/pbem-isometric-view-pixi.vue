@@ -101,6 +101,7 @@ export default Vue.extend({
   },
   beforeDestroy() {
     this.alive = false;
+    this.$el.removeChild(this._pixi.renderer.view);
     window.removeEventListener('resize', this.onResize);
   },
   computed: {
@@ -115,6 +116,7 @@ export default Vue.extend({
 
       const r: Array<{left: number, top: number, zIndex: number, e: any}> = [];
 
+      const ecs = this.$pbem.state.plugins.ecs;
       const iso = this.$pbem.state.plugins.iso as PbemIsometric<any>;
       const comps = this.components.split(' ').filter(x => x.length > 0);
 
@@ -147,7 +149,8 @@ export default Vue.extend({
             e,
             left: this.tileWidth * (p[0] - 0.5 * h),
             top: this.tileHeight * (p[1] - dim.sz * this.tileElevation - 0.5 * w),
-            zIndex: 0xffff + Math.round(16 * (-dim.sx - dim.sy + dim.sz * this.tileElevation)),
+            zIndex: 0xffff + Math.round(16 * (-dim.sx - dim.sy + dim.sz * this.tileElevation))
+              + (ecs.isUi(e) ? 0x10000 : 0 ),
           });
         }
       }

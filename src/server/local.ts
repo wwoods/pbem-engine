@@ -1,8 +1,8 @@
 
 import {_Server, ServerError, ServerStagingResponse, ServerGameIdPrefixes} from './common';
 
-import {_PbemSettings, _PbemState, _PbemAction, _GameHooks, PbemError,
-  PbemServerView} from '../game';
+import {_PbemSettings, _PbemState, _PbemAction, _GameHooks, PbemActionWithDetails,
+  PbemError, PbemServerView} from '../game';
 
 export type ServerStagingResponse<T> = ServerStagingResponse<T>;
 
@@ -73,7 +73,7 @@ export class _ServerLocal implements _Server {
   }
 
 
-  async gameActions<Action extends _PbemAction>(gameId: string, actions: Action[]) {
+  async gameActions<Action extends _PbemAction>(gameId: string, actions: PbemActionWithDetails<Action>[]) {
     this._gameActions(gameId, actions);
   }
 
@@ -83,11 +83,11 @@ export class _ServerLocal implements _Server {
     return gi.state as State;
   }
 
-  async gameUndo(gameId: string, action: _PbemAction) {
+  async gameUndo(gameId: string, action: PbemActionWithDetails<_PbemAction>) {
     const gi = this._fetchGame(gameId);
     const state = gi.state!;
     // Note: acts is made mutable.
-    const acts = state.actions as _PbemAction[];
+    const acts = state.actions as PbemActionWithDetails<_PbemAction>[];
     // Most undo will be recent actions, so start there.
     let m = acts.length, i = m;
     while (i > 0) {
@@ -150,7 +150,7 @@ export class _ServerLocal implements _Server {
   }
 
 
-  _gameActions<Action extends _PbemAction>(gameId: string, actions: Action[]) {
+  _gameActions<Action extends _PbemAction>(gameId: string, actions: PbemActionWithDetails<Action>[]) {
     const gi = this.games.get(gameId);
     if (gi === undefined) {
       throw new ServerError.ServerError('Bad game');
@@ -161,7 +161,7 @@ export class _ServerLocal implements _Server {
     }
 
     const state = gi.state!;
-    const stateActionsMutable = state.actions as _PbemAction[];
+    const stateActionsMutable = state.actions as PbemActionWithDetails<_PbemAction>[];
     const sinceAction = state.actions.length;
     const newGroup: boolean = !gi.actionGroupInProgress;
     let groupMember: boolean = gi.actionGroupInProgress;
@@ -247,22 +247,17 @@ export class _ServerLocal implements _Server {
 export const ServerLocal = new _ServerLocal();
 
 
-export class ServerView implements PbemServerView<_PbemState> {
+export class ServerView implements PbemServerView<_PbemState, _PbemAction> {
   playerId: number = -1;
 
   constructor(public _server: _ServerLocal, public _gameId: string,
       public state: Readonly<_PbemState>) {
   }
 
-  action(type: string, ...args: any[]): void {
-    this.actionMulti([type, ...args]);
-  }
-
-
-  actionMulti(...actions: Array<[string, ...any[]]>): void {
+  action(action: _PbemAction): void {
     const objs = [];
-    for (const a of actions) {
-      const act = _PbemAction.create(...a);
+    for (const a of [action]) {
+      const act = _PbemAction.create(a);
       act.playerOrigin = -1;
       objs.push(act);
     }

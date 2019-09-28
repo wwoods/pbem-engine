@@ -27,7 +27,7 @@ export interface EcsEntity extends PbemIsometricEntity {
   ui_shine?: boolean;
   ui_target?: {
     type: 'action',
-    args: any[],
+    action: Action,
   };
 }
 
@@ -117,7 +117,7 @@ export namespace State {
 }
 
 
-export type Action = PbemAction.Types.Builtins;
+export type Action = PbemAction.Types.Builtins | Action.Types.Move;
 export namespace Action {
   export namespace Types {
     export type Move = PbemAction<'Move', {
@@ -125,16 +125,11 @@ export namespace Action {
       x: number,
       y: number,
       z: number,
-      fromX: number,
-      fromY: number,
-      fromZ: number,
+      fromX?: number,
+      fromY?: number,
+      fromZ?: number,
     }>;
     export const Move: PbemAction.Hooks<State, Move> = {
-      init(action, entity: string, x: number, y: number) {
-        action.game.entity = entity;
-        action.game.x = x;
-        action.game.y = y;
-      },
       validate(state, action) {
         const entity = state.plugins.ecs.get(action.game.entity, 'tile', 'playerPiece');
         if (entity.playerPiece!.player !== action.playerOrigin) {
@@ -175,9 +170,9 @@ export namespace Action {
       backward(state, action) {
         state.plugins.ecs.update(action.game.entity, {
           tile: {
-            x: action.game.fromX,
-            y: action.game.fromY,
-            z: action.game.fromZ,
+            x: action.game.fromX!,
+            y: action.game.fromY!,
+            z: action.game.fromZ!,
           },
         });
       },
