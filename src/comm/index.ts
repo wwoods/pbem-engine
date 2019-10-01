@@ -1,10 +1,24 @@
-
+/**
+ * Manages current user for the client-side application.  That is:
+ *
+ * Application has many users, potentially.
+ * Application has one active user.
+ * The active user may start games for themselves, inviting other local users.
+ * Accounts have an active / inactive state... allow PnP -> network -> PnP
+ * trades.
+ *
+ * */
 import assert from 'assert';
+
+import PouchDb from 'pouchdb';
+import PouchDbUpsert from 'pouchdb-upsert';
+PouchDb.plugin(PouchDbUpsert);
 
 import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemPlayer,
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
 export {ServerError} from '../server/common';
+import {DbLocal, DbLocalUserDefinition, DbUser} from './db';
 
 import {CommCommon} from './common';
 import {IdPrefix, CommTypes} from './factory';
@@ -88,8 +102,9 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
 }
 
 
-/** Class responsible for running local version of game and sending necessary
- * information to remote.
+/** Class responsible for running local version of game.  Handles
+ * communications with user database, and switching between users.  Primarily
+ * handles local users, but sets up synchronization when needed.
  * */
 export class _ServerLink {
   actionsPending: Array<PbemActionWithDetails<_PbemAction>> = [];
@@ -105,11 +120,93 @@ export class _ServerLink {
   }
   localPlayers: Array<PbemPlayer> = [];
   localPlayerView = new PlayerView<_PbemState, _PbemAction>();
+  readyEvent = new Promise((resolve, reject) => {
+    this._readyEvent = [resolve, reject];
+  });
 
   _comm?: CommCommon;
+  _readyEvent!: [any, any];
   _settings?: _PbemSettings;
   _state?: _PbemState;
+  _dbLocal = new PouchDb<DbLocal>('pbem-local');
+  _dbUserCurrent?: PouchDB.Database<DbUser>;
+  _userCurrent?: DbLocalUserDefinition;
+  _dbUsersLoggedIn = new Map<string, PouchDB.Database<DbUser>>();
   _$nextTick?: (cb: () => void) => void;
+
+  get userCurrent(): Readonly<DbLocalUserDefinition> | undefined {
+    return this._userCurrent;
+  }
+
+  async init() {
+    let loginUser: string | undefined;
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocal>) => {
+      doc.users = doc.users || [];
+      loginUser = doc.userLoginLatestId;
+      return doc as DbLocal;
+    });
+    if (loginUser !== undefined) {
+      await this.userLogin(loginUser);
+    }
+    this._readyEvent[0]();
+  }
+
+  /** Create and switch to local user `username`.
+   * */
+  async userCreate(username: string) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_ ]*/.test(username)) {
+      throw new Error(`Username must start with a letter or number, and `
+          + `then consist of letters, numbers, underscores, or spaces`);
+    }
+
+    let userId: string = "";
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocal>) => {
+      const users = doc.users!;
+      if (users.map(x => x.name).indexOf(username) >= 0) {
+        throw new Error(`Username '${username}' already in use.`);
+      }
+      let id: number = 1;
+      const ids = users.map(x => x.idLocal);
+      while (ids.indexOf(id.toString()) >= 0) id++;
+      userId = id.toString();
+      users.push({idLocal: userId, name: username});
+      users.sort((a, b) => a.name.localeCompare(b.name));
+      return doc as DbLocal;
+    });
+
+    if (userId.length === 0) throw new Error("User ID not set?");
+    await this.userLogin(userId);
+  }
+
+  /** Switch to local user `username`.
+   * */
+  async userLogin(userIdLocal: string) {
+    const d = await this._dbLocal.get('users');
+    const u = d.users.filter(x => x.idLocal === userIdLocal);
+    if (u.length !== 1) throw new Error('No such user?');
+
+    // Synchronize user, TODO
+
+    // Set current user database
+    if (this._dbUsersLoggedIn.has(userIdLocal)) {
+      this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
+      // TODO: sync code
+    }
+    this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
+    this._userCurrent = u[0];
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocal>) => {
+      doc.userLoginLatestId = userIdLocal;
+      return doc as DbLocal;
+    });
+  }
+
+  /** List all local users.
+   * */
+  async userList() {
+    await this.readyEvent;
+    const d = await this._dbLocal.get('users');
+    return d.users;
+  }
 
   /** Invoke the specified actions on the remote server. */
   async gameActions(action: PbemActionWithDetails<_PbemAction>[]) {

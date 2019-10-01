@@ -1,0 +1,643 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg8"
+   inkscape:version="0.92.4 (5da689c313, 2019-01-14)"
+   sodipodi:docname="db-schema.svg">
+  <defs
+     id="defs2">
+    <marker
+       inkscape:stockid="Arrow2Lend"
+       orient="auto"
+       refY="0.0"
+       refX="0.0"
+       id="marker1307"
+       style="overflow:visible;"
+       inkscape:isstock="true">
+      <path
+         id="path1305"
+         style="fill-rule:evenodd;stroke-width:0.625;stroke-linejoin:round;stroke:#000000;stroke-opacity:1;fill:#000000;fill-opacity:1"
+         d="M 8.7185878,4.0337352 L -2.2072895,0.016013256 L 8.7185884,-4.0017078 C 6.9730900,-1.6296469 6.9831476,1.6157441 8.7185878,4.0337352 z "
+         transform="scale(1.1) rotate(180) translate(1,0)" />
+    </marker>
+    <marker
+       inkscape:isstock="true"
+       style="overflow:visible;"
+       id="marker1247"
+       refX="0.0"
+       refY="0.0"
+       orient="auto"
+       inkscape:stockid="Arrow2Lend"
+       inkscape:collect="always">
+      <path
+         transform="scale(1.1) rotate(180) translate(1,0)"
+         d="M 8.7185878,4.0337352 L -2.2072895,0.016013256 L 8.7185884,-4.0017078 C 6.9730900,-1.6296469 6.9831476,1.6157441 8.7185878,4.0337352 z "
+         style="fill-rule:evenodd;stroke-width:0.625;stroke-linejoin:round;stroke:#000000;stroke-opacity:1;fill:#000000;fill-opacity:1"
+         id="path1245" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow2Lend"
+       orient="auto"
+       refY="0.0"
+       refX="0.0"
+       id="Arrow2Lend"
+       style="overflow:visible;"
+       inkscape:isstock="true"
+       inkscape:collect="always">
+      <path
+         id="path868"
+         style="fill-rule:evenodd;stroke-width:0.625;stroke-linejoin:round;stroke:#000000;stroke-opacity:1;fill:#000000;fill-opacity:1"
+         d="M 8.7185878,4.0337352 L -2.2072895,0.016013256 L 8.7185884,-4.0017078 C 6.9730900,-1.6296469 6.9831476,1.6157441 8.7185878,4.0337352 z "
+         transform="scale(1.1) rotate(180) translate(1,0)" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow2Lstart"
+       orient="auto"
+       refY="0.0"
+       refX="0.0"
+       id="Arrow2Lstart"
+       style="overflow:visible"
+       inkscape:isstock="true">
+      <path
+         id="path865"
+         style="fill-rule:evenodd;stroke-width:0.625;stroke-linejoin:round;stroke:#000000;stroke-opacity:1;fill:#000000;fill-opacity:1"
+         d="M 8.7185878,4.0337352 L -2.2072895,0.016013256 L 8.7185884,-4.0017078 C 6.9730900,-1.6296469 6.9831476,1.6157441 8.7185878,4.0337352 z "
+         transform="scale(1.1) translate(1,0)" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow1Sstart"
+       orient="auto"
+       refY="0.0"
+       refX="0.0"
+       id="Arrow1Sstart"
+       style="overflow:visible"
+       inkscape:isstock="true">
+      <path
+         id="path859"
+         d="M 0.0,0.0 L 5.0,-5.0 L -12.5,0.0 L 5.0,5.0 L 0.0,0.0 z "
+         style="fill-rule:evenodd;stroke:#000000;stroke-width:1pt;stroke-opacity:1;fill:#000000;fill-opacity:1"
+         transform="scale(0.2) translate(6,0)" />
+    </marker>
+    <marker
+       inkscape:stockid="Arrow1Lstart"
+       orient="auto"
+       refY="0.0"
+       refX="0.0"
+       id="Arrow1Lstart"
+       style="overflow:visible"
+       inkscape:isstock="true">
+      <path
+         id="path847"
+         d="M 0.0,0.0 L 5.0,-5.0 L -12.5,0.0 L 5.0,5.0 L 0.0,0.0 z "
+         style="fill-rule:evenodd;stroke:#000000;stroke-width:1pt;stroke-opacity:1;fill:#000000;fill-opacity:1"
+         transform="scale(0.8) translate(12.5,0)" />
+    </marker>
+  </defs>
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="2.2536644"
+     inkscape:cx="332.34543"
+     inkscape:cy="913.71"
+     inkscape:document-units="mm"
+     inkscape:current-layer="layer1"
+     showgrid="false"
+     inkscape:window-width="3840"
+     inkscape:window-height="2036"
+     inkscape:window-x="0"
+     inkscape:window-y="64"
+     inkscape:window-maximized="1" />
+  <metadata
+     id="metadata5">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect815"
+       width="40.065475"
+       height="26.458332"
+       x="44.979168"
+       y="61.70982" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="56.696426"
+       y="77.206848"
+       id="text819"><tspan
+         sodipodi:role="line"
+         id="tspan817"
+         x="56.696426"
+         y="77.206848"
+         style="stroke-width:0.26458332">User DB</tspan></text>
+    <rect
+       y="58.308037"
+       x="-35.151783"
+       height="26.458332"
+       width="40.065475"
+       id="rect821"
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1" />
+    <text
+       id="text825"
+       y="73.805061"
+       x="-23.434526"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       xml:space="preserve"><tspan
+         style="stroke-width:0.26458332"
+         y="73.805061"
+         x="-23.434526"
+         id="tspan823"
+         sodipodi:role="line">User DB</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect827"
+       width="110.18005"
+       height="91.659218"
+       x="-97.706841"
+       y="-3.1130955" />
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect829"
+       width="231.80659"
+       height="104.88839"
+       x="41.766369"
+       y="-7.4598212" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="46.869045"
+       y="2.3675592"
+       id="text833"><tspan
+         sodipodi:role="line"
+         id="tspan831"
+         x="46.869045"
+         y="2.3675592"
+         style="stroke-width:0.26458332">Server</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-94.116074"
+       y="5.5803566"
+       id="text837"><tspan
+         sodipodi:role="line"
+         id="tspan835"
+         x="-94.116074"
+         y="5.5803566"
+         style="stroke-width:0.26458332">User device</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect839"
+       width="40.065475"
+       height="26.458332"
+       x="-82.398804"
+       y="56.796131" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-70.681549"
+       y="72.293159"
+       id="text843"><tspan
+         sodipodi:role="line"
+         id="tspan841"
+         x="-70.681549"
+         y="72.293159"
+         style="stroke-width:0.26458332">User 2 DB</tspan></text>
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;stroke-miterlimit:4;stroke-dasharray:none;marker-start:url(#Arrow2Lstart);marker-end:url(#Arrow2Lend)"
+       d="M 7.1815475,77.773809 43.656249,78.907737"
+       id="path845"
+       inkscape:connector-curvature="0" />
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect1231"
+       width="75.454498"
+       height="59.694458"
+       x="99.402725"
+       y="4.6908417" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="120.35741"
+       y="30.57605"
+       id="text1235"><tspan
+         sodipodi:role="line"
+         id="tspan1233"
+         x="120.35741"
+         y="30.57605"
+         style="stroke-width:0.26458332">Game</tspan></text>
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.00000003;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;stroke-miterlimit:4;stroke-dasharray:1.00000003,1.00000003;marker-end:url(#marker1247);stroke-dashoffset:0"
+       d="M 59.16619,57.517797 96.849418,32.601082"
+       id="path1237"
+       inkscape:connector-curvature="0" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;stroke-miterlimit:4;stroke-dasharray:none;marker-end:url(#marker1307)"
+       d="M 122.11831,65.882064 86.284026,79.881208"
+       id="path1297"
+       inkscape:connector-curvature="0" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="109.3518"
+       y="78.1203"
+       id="text1359"><tspan
+         sodipodi:role="line"
+         id="tspan1357"
+         x="109.3518"
+         y="78.1203"
+         style="stroke-width:0.26458332">Game may == User DB, if local game</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="113.40186"
+       y="43.870834"
+       id="text1363"><tspan
+         sodipodi:role="line"
+         id="tspan1361"
+         x="113.40186"
+         y="43.870834"
+         style="stroke-width:0.26458332">Keep small for replication efficiency.</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="110.67248"
+       y="86.220444"
+       id="text1367"><tspan
+         sodipodi:role="line"
+         id="tspan1365"
+         x="110.67248"
+         y="86.220444"
+         style="stroke-width:0.26458332">User keeps list of games involved, and </tspan><tspan
+         sodipodi:role="line"
+         x="110.67248"
+         y="90.630165"
+         style="stroke-width:0.26458332"
+         id="tspan1369">where they live (may be local or remote).</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-58.63792"
+       y="-20.754141"
+       id="text1392"><tspan
+         sodipodi:role="line"
+         id="tspan1390"
+         x="-58.63792"
+         y="-20.754141"
+         style="stroke-width:0.26458332">Note: this is a very low-quality diagram.</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1.00000003;stroke-miterlimit:4;stroke-dasharray:1.00000003,1.00000003;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect1394"
+       width="44.990959"
+       height="35.129925"
+       x="-37.331051"
+       y="50.914425" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-34.777744"
+       y="54.700359"
+       id="text1398"><tspan
+         sodipodi:role="line"
+         id="tspan1396"
+         x="-34.777744"
+         y="54.700359"
+         style="stroke-width:0.26458332">Active player</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-94.91243"
+       y="12.790975"
+       id="text1402"><tspan
+         sodipodi:role="line"
+         id="tspan1400"
+         x="-94.91243"
+         y="12.790975"
+         style="stroke-width:0.26458332">Players default to local, may be synced with remote user.</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect1404"
+       width="58.109653"
+       height="14.615458"
+       x="-84.170952"
+       y="17.281267" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-81.705696"
+       y="24.148769"
+       id="text1408"><tspan
+         sodipodi:role="line"
+         id="tspan1406"
+         x="-81.705696"
+         y="24.148769"
+         style="stroke-width:0.26458332">User / Game Listing</tspan></text>
+    <rect
+       y="8.6528645"
+       x="45.695316"
+       height="14.615458"
+       width="58.109653"
+       id="rect1410"
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1" />
+    <text
+       id="text1414"
+       y="15.520367"
+       x="48.160572"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       xml:space="preserve"><tspan
+         style="stroke-width:0.26458332"
+         y="15.520367"
+         x="48.160572"
+         id="tspan1412"
+         sodipodi:role="line">User / Game Listing</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-76.775177"
+       y="79.088806"
+       id="text1418"><tspan
+         sodipodi:role="line"
+         id="tspan1416"
+         x="-76.775177"
+         y="79.088806"
+         style="stroke-width:0.26458332">Keep user settings</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="44.017975"
+       y="30.311914"
+       id="text1422"><tspan
+         sodipodi:role="line"
+         id="tspan1420"
+         x="44.017975"
+         y="30.311914"
+         style="stroke-width:0.26458332">TODO: Server should keep X</tspan><tspan
+         sodipodi:role="line"
+         x="44.017975"
+         y="34.721638"
+         style="stroke-width:0.26458332"
+         id="tspan1424">bot users always in game.</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="105.12564"
+       y="50.650291"
+       id="text1428"><tspan
+         sodipodi:role="line"
+         id="tspan1426"
+         x="105.12564"
+         y="50.650291"
+         style="stroke-width:0.26458332">May be embedded in User DB for </tspan><tspan
+         sodipodi:role="line"
+         x="105.12564"
+         y="55.060013"
+         style="stroke-width:0.26458332"
+         id="tspan1430">replication purposes (ensure users have a </tspan><tspan
+         sodipodi:role="line"
+         x="105.12564"
+         y="59.469734"
+         style="stroke-width:0.26458332"
+         id="tspan1432">copy of local games wherever they go).</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-97.817917"
+       y="97.754326"
+       id="text1436"><tspan
+         sodipodi:role="line"
+         id="tspan1434"
+         x="-97.817917"
+         y="97.754326"
+         style="stroke-width:0.26458332">Game DB stores:</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="102.16405"
+         style="stroke-width:0.26458332"
+         id="tspan1438">Game settings, including user information (idRemote always usurps idLocal)</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="106.57377"
+         style="stroke-width:0.26458332"
+         id="tspan1440">State snapshots, indexed by insertion place in actions array (always at RoundEnd)</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="110.98349"
+         style="stroke-width:0.26458332"
+         id="tspan1446">Actions array, polled from user DBs, transformed into permanent record.</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="115.39321"
+         style="stroke-width:0.26458332"
+         id="tspan1452" /><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="119.80293"
+         style="stroke-width:0.26458332"
+         id="tspan1454">User DB stores:</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="124.21266"
+         style="stroke-width:0.26458332"
+         id="tspan1456">Game membership information</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="128.62238"
+         style="stroke-width:0.26458332"
+         id="tspan1472">Friend list</tspan><tspan
+         sodipodi:role="line"
+         x="-97.817917"
+         y="133.0321"
+         style="stroke-width:0.26458332"
+         id="tspan1458">Pending actions queue</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="41.645248"
+       y="102.50875"
+       id="text1462"><tspan
+         sodipodi:role="line"
+         id="tspan1460"
+         x="41.645248"
+         y="102.50875"
+         style="stroke-width:0.26458332">pbem-config stores frontendUrl + databaseUrl... frontendUrl might be implicit, need to check.</tspan><tspan
+         sodipodi:role="line"
+         x="41.645248"
+         y="106.91847"
+         style="stroke-width:0.26458332"
+         id="tspan1464">IF (big if) a PWA can start a socket server, then potentially could connect over LAN for</tspan><tspan
+         sodipodi:role="line"
+         x="41.645248"
+         y="111.32819"
+         style="stroke-width:0.26458332"
+         id="tspan1466">user &lt;-&gt; user replication for local game connectivity.  That would require, potentially, </tspan><tspan
+         sodipodi:role="line"
+         x="41.645248"
+         y="115.73792"
+         style="stroke-width:0.26458332"
+         id="tspan1468">setting up a pseudo-idRemote value (with an invalid base64 prefix, like --), and then allowing</tspan><tspan
+         sodipodi:role="line"
+         x="41.645248"
+         y="120.14764"
+         style="stroke-width:0.26458332"
+         id="tspan1470">for the later migration of that pseudo-idRemote account to a real idRemote account.</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-74.368622"
+       y="34.640354"
+       id="text1476"><tspan
+         sodipodi:role="line"
+         id="tspan1474"
+         x="-74.368622"
+         y="34.640354"
+         style="stroke-width:0.26458332">Local games may only involved players logged in </tspan><tspan
+         sodipodi:role="line"
+         x="-74.368622"
+         y="39.050076"
+         style="stroke-width:0.26458332"
+         id="tspan1488">on current device and friends; friends trigger a </tspan><tspan
+         sodipodi:role="line"
+         x="-74.368622"
+         y="43.459797"
+         style="stroke-width:0.26458332"
+         id="tspan1510">_replicator record on CouchDB to handle sync between </tspan><tspan
+         sodipodi:role="line"
+         x="-74.368622"
+         y="47.869522"
+         style="stroke-width:0.26458332"
+         id="tspan1512">users.</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect1490"
+       width="47.081715"
+       height="25.778585"
+       x="185.28358"
+       y="6.2748446" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="189.93805"
+       y="16.120831"
+       id="text1494"><tspan
+         sodipodi:role="line"
+         x="189.93805"
+         y="16.120831"
+         style="stroke-width:0.26458332"
+         id="tspan1496">Watch global_changes </tspan><tspan
+         sodipodi:role="line"
+         x="189.93805"
+         y="20.530552"
+         style="stroke-width:0.26458332"
+         id="tspan1506">to ensure game backend</tspan><tspan
+         sodipodi:role="line"
+         x="189.93805"
+         y="24.940275"
+         style="stroke-width:0.26458332"
+         id="tspan1514">is run on game event</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-95.245438"
+       y="51.411026"
+       id="text1500"><tspan
+         sodipodi:role="line"
+         id="tspan1498"
+         x="-95.245438"
+         y="51.411026"
+         style="stroke-width:0.26458332">Watches local changes for</tspan><tspan
+         sodipodi:role="line"
+         x="-95.245438"
+         y="55.820747"
+         style="stroke-width:0.26458332"
+         id="tspan1502">notifications; game replication only</tspan><tspan
+         sodipodi:role="line"
+         x="-95.245438"
+         y="60.230469"
+         style="stroke-width:0.26458332"
+         id="tspan1538">occurs when game is open.</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="68.384857"
+       y="54.609692"
+       id="text1518"><tspan
+         sodipodi:role="line"
+         id="tspan1516"
+         x="68.384857"
+         y="54.609692"
+         style="stroke-width:0.26458332">Pending actions</tspan><tspan
+         sodipodi:role="line"
+         x="68.384857"
+         y="59.019413"
+         style="stroke-width:0.26458332"
+         id="tspan1520">to game</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="181.61995"
+       y="51.631092"
+       id="text1528"><tspan
+         sodipodi:role="line"
+         id="tspan1526"
+         x="181.61995"
+         y="51.631092"
+         style="stroke-width:0.26458332">For now, all of game gets replicated to each user</tspan><tspan
+         sodipodi:role="line"
+         x="181.61995"
+         y="56.040813"
+         style="stroke-width:0.26458332"
+         id="tspan1530">(may be filtered in future for e.g. partial visibility)</tspan><tspan
+         sodipodi:role="line"
+         x="181.61995"
+         y="60.450535"
+         style="stroke-width:0.26458332"
+         id="tspan1532" /><tspan
+         sodipodi:role="line"
+         x="181.61995"
+         y="64.86026"
+         style="stroke-width:0.26458332"
+         id="tspan1534">Users get replicated to game... filtered.  Game gets </tspan><tspan
+         sodipodi:role="line"
+         x="181.61995"
+         y="69.269981"
+         style="stroke-width:0.26458332"
+         id="tspan1536">replicated to user, filtered.</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="8.1006956"
+       y="128.0594"
+       id="text1542"><tspan
+         sodipodi:role="line"
+         id="tspan1540"
+         x="8.1006956"
+         y="128.0594"
+         style="stroke-width:0.26458332">Bottom line: two connections per user per game, plus one connection per active user.</tspan></text>
+  </g>
+</svg>

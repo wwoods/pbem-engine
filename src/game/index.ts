@@ -251,6 +251,31 @@ export interface PbemPlugin {
   load: {(): void};
 }
 
+// TODO PouchDB is communication protocol.  State is stored in a document, yes,
+// but is considered largely immutable.  Actions are stored as additional documents,
+// which are executed in order to transform the last checkpoint state into the
+// current state (on game load).
+//
+// Game server connects to user databases, and listens for changes which are
+// new (requested) actions.  Requested actions have a client ID, which is
+// propagated to the final action (for UI callbacks).  Game server thus keeps
+// a running tally of actions, some checkpoint state, and everything else
+// happens in memory.  Clients can only write their own DB, so messing it up
+// really would just ruin their own state.
+//
+// Game server replicates from itself to all user dbs, at least for now.
+//
+// PnP: Still works.  Each user represented by their own, local PouchDB 
+// connection.  Should be easy enough to allow multiple logged-in users on one
+// machine, which then can all participate in PnP when desired.
+//
+// Another benefit is that server code is always identical.... TBD if latency is
+// OK or not.
+//
+// Use superlogin https://www.npmjs.com/package/superlogin#adding-providers
+//
+// This article illustrates superlogin fairly well: https://www.joshmorony.com/part-2-creating-a-multiple-user-app-with-ionic-2-pouchdb-couchdb/
+
 export interface PbemState<GameSettings, GameState, Plugins extends {[key: string]: PbemPlugin} = {}> extends _PbemState {
   settings: PbemSettings<GameSettings>;
   game: GameState;

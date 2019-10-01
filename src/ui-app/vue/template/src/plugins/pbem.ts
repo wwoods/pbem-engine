@@ -14,6 +14,8 @@ export const pbemPlugin = {
     // Make user code available to core.
     _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
 
+    ServerLink.init();
+
     // Have $pbem refer to an Actor which ties into a game state...
     // pass-and-play has a different Actor for each player which automatically
     // substitutes the correct state (for supporting future views of state)
@@ -47,6 +49,19 @@ export const _pbemServer = {
     };
     const gameId = await ServerLink.stagingCreateLocal(innerInit);
     router.push({name: 'staging', params: {id: gameId}});
-  }
+  },
+  get userCurrentId() {
+    const u = ServerLink.userCurrent;
+    return u && u.idLocal;
+  },
+  async userCreate(username: string) {
+    return await ServerLink.userCreate(username);
+  },
+  async userList() {
+    return await ServerLink.userList();
+  },
+  async userLogin(username: string) {
+    return await ServerLink.userLogin(username);
+  },
 };
 

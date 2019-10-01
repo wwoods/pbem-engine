@@ -31,12 +31,16 @@
   "homepage": "https://github.com/wwoods/pbem-engine#readme",
   "devDependencies": {
     "@types/fs-extra": "^8.0.0",
+    "@types/pouchdb": "^6.4.0",
+    "@types/pouchdb-upsert": "^2.2.6",
     "@types/rimraf": "^2.0.2",
     "typescript": "^3.6.2"
   },
   "dependencies": {
     "commander": "^3.0.1",
     "fs-extra": "^8.1.0",
+    "pouchdb": "^7.1.1",
+    "pouchdb-upsert": "^2.2.0",
     "rimraf": "^3.0.0",
     "serve": "^11.1.0"
   }
