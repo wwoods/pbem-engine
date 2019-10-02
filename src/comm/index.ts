@@ -1,5 +1,5 @@
 /**
- * Manages current user for the client-side application.  That is:
+ * Manages database comms for the client-side application.  That is:
  *
  * Application has many users, potentially.
  * Application has one active user.
@@ -18,10 +18,7 @@ import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemPlayer,
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError, ServerStagingResponse} from '../server/common';
 export {ServerError} from '../server/common';
-import {DbLocal, DbLocalUserDefinition, DbUser} from './db';
-
-import {CommCommon} from './common';
-import {IdPrefix, CommTypes} from './factory';
+import {DbLocal, DbLocalUserDefinition, DbLocalUsersDoc, DbUser} from './db';
 
 /** Note that for UI reactivity, all players share the same "PlayerView" object.
  * Only the properties get changed.
@@ -32,6 +29,8 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
   playerId: number;
   state: State;
   uiEvents: Array<_PbemEvent>;
+  // TODO: keep whether or not there is pending activity cached for the UI.
+  _pending: boolean = false;
 
   constructor() {
     this.playerId = -1;
@@ -40,8 +39,7 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
   }
 
   get hasPending(): boolean {
-    // states = [applied, pending, <redo>]
-    return ServerLink.actionsPending.filter((x) => x.playerOrigin === this.playerId).length > 0;
+    return this._pending;
   }
 
   getRoundPlayerActions() {
@@ -107,7 +105,6 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
  * handles local users, but sets up synchronization when needed.
  * */
 export class _ServerLink {
-  actionsPending: Array<PbemActionWithDetails<_PbemAction>> = [];
   _localPlayerActive: number = -1;
   localPlayerActive(newPlayer?: number) {
     if (newPlayer !== undefined) {
@@ -124,7 +121,6 @@ export class _ServerLink {
     this._readyEvent = [resolve, reject];
   });
 
-  _comm?: CommCommon;
   _readyEvent!: [any, any];
   _settings?: _PbemSettings;
   _state?: _PbemState;
@@ -140,10 +136,10 @@ export class _ServerLink {
 
   async init() {
     let loginUser: string | undefined;
-    await this._dbLocal.upsert('users', (doc: Partial<DbLocal>) => {
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.users = doc.users || [];
       loginUser = doc.userLoginLatestId;
-      return doc as DbLocal;
+      return doc as DbLocalUsersDoc;
     });
     if (loginUser !== undefined) {
       await this.userLogin(loginUser);
@@ -159,44 +155,40 @@ export class _ServerLink {
           + `then consist of letters, numbers, underscores, or spaces`);
     }
 
-    let userId: string = "";
-    await this._dbLocal.upsert('users', (doc: Partial<DbLocal>) => {
+    // Generate a hopefully-globally-unique, local user ID.
+    const userPlaceholder = await this._dbLocal.post({
+        type: 'user-local-placeholder'});
+    let userId: string = userPlaceholder.id;
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       const users = doc.users!;
       if (users.map(x => x.name).indexOf(username) >= 0) {
         throw new Error(`Username '${username}' already in use.`);
       }
-      let id: number = 1;
-      const ids = users.map(x => x.idLocal);
-      while (ids.indexOf(id.toString()) >= 0) id++;
-      userId = id.toString();
-      users.push({idLocal: userId, name: username});
+      users.push({localId: userId, name: username});
       users.sort((a, b) => a.name.localeCompare(b.name));
-      return doc as DbLocal;
+      return doc as DbLocalUsersDoc;
     });
 
-    if (userId.length === 0) throw new Error("User ID not set?");
     await this.userLogin(userId);
   }
 
-  /** Switch to local user `username`.
+  /** Switch to local user with specified local ID.
    * */
   async userLogin(userIdLocal: string) {
-    const d = await this._dbLocal.get('users');
-    const u = d.users.filter(x => x.idLocal === userIdLocal);
+    const d = await this._dbLocal.get('users') as DbLocalUsersDoc;
+    const u = d.users.filter(x => x.localId === userIdLocal);
     if (u.length !== 1) throw new Error('No such user?');
-
-    // Synchronize user, TODO
 
     // Set current user database
     if (this._dbUsersLoggedIn.has(userIdLocal)) {
       this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
-      // TODO: sync code
+      // TODO: remote sync code
     }
     this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
     this._userCurrent = u[0];
-    await this._dbLocal.upsert('users', (doc: Partial<DbLocal>) => {
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.userLoginLatestId = userIdLocal;
-      return doc as DbLocal;
+      return doc as DbLocalUsersDoc;
     });
   }
 
@@ -204,7 +196,7 @@ export class _ServerLink {
    * */
   async userList() {
     await this.readyEvent;
-    const d = await this._dbLocal.get('users');
+    const d = await this._dbLocal.get('users') as DbLocalUsersDoc;
     return d.users;
   }
 
@@ -251,12 +243,32 @@ export class _ServerLink {
     await comm.gameUndo(act);
   }
 
+  /** Create the settings for a local game, in staging state.
+   *
+   * The current user is automatically player 1, which should be locked (TODO).
+   * */
   async stagingCreateLocal<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<string> {
+    if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
+        "No user logged in.");
     const s = await this._stagingCreateSettings(init);
 
-    await this._commSwitch(IdPrefix.Local);
-    await this._comm!.stagingCreate(s);
-    return this._comm!.gameId;
+    const gameDoc = await this._dbUserCurrent.post({
+      type: 'game',
+      host: {
+        type: 'local',
+        // Use the specific local ID on this device.  Note that other devices
+        // with this user's account will still be able to play this game,
+        // thanks to the 'ids' document.
+        id: this.userCurrent!.localId,
+      },
+      createdBy: {
+        type: 'local',
+        id: this.userCurrent!.localId,
+      },
+      phase: 'staging',
+      settings: s,
+    });
+    return gameDoc.id;
   }
 
   async stagingLoad<Settings extends _PbemSettings>(id: string): Promise<ServerStagingResponse<Settings>> {

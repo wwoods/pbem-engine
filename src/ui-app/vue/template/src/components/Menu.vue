@@ -8,7 +8,7 @@
         input(type="button" @click="userCreate(username)" value="Create")
     .pbem-login
       ul
-        li(v-for="user of users" @click="userLogin(user.idLocal)" :style="{'font-weight': $pbemServer.userCurrentId === user.idLocal ? 'bold' : ''}") {{user.name}}
+        li(v-for="user of users" @click="userLogin(user.localId)" :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}") {{user.name}}
     .pbem-menu
       input(type="button" @click="createLocal()" value="Create local")
 </template>
@@ -45,9 +45,8 @@ export default Vue.extend({
     async createLocal() {
       console.log(this);
       await this.$pbemServer.createLocal(async (s: Settings) => {
-        //TODO host = {type: 'local', id: user.idLocal}.
-        //Local can overwrite ID.
-        s.gameId = "TODO";
+        // TODO host = {type: 'local', id: user.localId}.
+        // Can write settings here as desired needed, for e.g. a game campaign.
       });
     },
     async userCreate(username: string) {

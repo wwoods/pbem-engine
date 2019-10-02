@@ -50,9 +50,9 @@ export const _pbemServer = {
     const gameId = await ServerLink.stagingCreateLocal(innerInit);
     router.push({name: 'staging', params: {id: gameId}});
   },
-  get userCurrentId() {
+  get userLocalId() {
     const u = ServerLink.userCurrent;
-    return u && u.idLocal;
+    return u && u.localId;
   },
   async userCreate(username: string) {
     return await ServerLink.userCreate(username);
@@ -60,8 +60,8 @@ export const _pbemServer = {
   async userList() {
     return await ServerLink.userList();
   },
-  async userLogin(username: string) {
-    return await ServerLink.userLogin(username);
+  async userLogin(userId: string) {
+    return await ServerLink.userLogin(userId);
   },
 };
 
