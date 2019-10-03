@@ -18,6 +18,11 @@ export namespace ServerError {
       super(`No such game: ${gameId}`);
     }
   }
+  export class NotLoggedInError extends ServerError {
+    constructor() {
+      super("Not logged in");
+    }
+  }
 }
 
 export interface ServerStagingResponse<Settings> {

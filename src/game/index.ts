@@ -4,8 +4,24 @@
 import {PbemError} from '../error';
 export {PbemError} from '../error';
 
+/** Placeholder type for a database ID. */
+export type PbemDbId = any;
+
 export interface PbemPlayer {
+  // Locally-cached player name.
   name: string;
+
+  // Status of this slot, allowing for invited positions.
+  status: 'normal' | 'reserved' | 'bot';
+
+  // Object for resolving this player entity at the DB level
+  dbId?: PbemDbId;
+
+  // Settings for this player, if any.  These settings are modified by the
+  // player themselves, not the host (except with a bot); game-level settings
+  // (balance?) should be handled on the root settings object, not on this.
+  playerSettings: any;
+
   // Only used for reference passing.  Hardcoded to the index in
   // settings.players
   index: number;
@@ -122,8 +138,8 @@ export interface _PbemSettings {
   playersMin: number;
   players: Array<PbemPlayer | undefined>;
 
-  turnSimultaneous: boolean;
-  turnPassAndPlay: boolean;
+  // TODO allow games which are not simultaneous. turnSimultaneous: boolean;
+  // TODO allow disabling of pass and play?  Probably not.  turnPassAndPlay: boolean;
 
   game: any;
 }
@@ -136,8 +152,8 @@ export namespace _PbemSettings {
     settings.playersValid = [2];
     settings.playersMin = 1;
     settings.players = [];
-    settings.turnSimultaneous = true;
-    settings.turnPassAndPlay = true;
+    //settings.turnSimultaneous = true;
+    //settings.turnPassAndPlay = true;
 
     // Will always be populated by user Settings.Hooks.init().
     settings.game = {};

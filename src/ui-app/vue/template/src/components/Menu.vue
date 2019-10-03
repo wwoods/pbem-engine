@@ -9,7 +9,9 @@
     .pbem-login
       ul
         li(v-for="user of users" @click="userLogin(user.localId)" :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}") {{user.name}}
-    .pbem-menu
+    .pbem-games
+      span TODO: active games.
+    .pbem-menu(v-if="$pbemServer.userLocalId")
       input(type="button" @click="createLocal()" value="Create local")
 </template>
 
@@ -29,13 +31,13 @@ import Vue from 'vue';
 import {Settings} from '@/game';
 
 import {ServerLink} from 'pbem-engine/lib/comm';
-import {DbLocalUsers} from 'pbem-engine/lib/comm/db';
+import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
 
 export default Vue.extend({
   data() {
     return {
       username: 'Guest1',
-      users: [] as DbLocalUsers,
+      users: [] as Array<DbLocalUserDefinition>,
     };
   },
   async mounted() {

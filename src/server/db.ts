@@ -52,11 +52,6 @@ export interface DbGameDoc {
   type: 'game';
   // The host entity responsible for running this game.
   host: DbUserId;
-  // The user entity which created this game - may be undefined for a
-  // system-created matchup, or may different or the same as host.
-  // Basically determines which users are allowed to tweak the "settings"
-  // object.
-  createdBy?: DbUserId;
   // The current phase of this game; always starts 'staging', 'game' means
   // in progress, and 'end' means that the game is immutable (finished).
   phase: 'staging' | 'game' | 'end';

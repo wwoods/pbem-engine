@@ -14,9 +14,9 @@ import PouchDb from 'pouchdb';
 import PouchDbUpsert from 'pouchdb-upsert';
 PouchDb.plugin(PouchDbUpsert);
 
-import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemPlayer,
+import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer,
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
-import {ServerError, ServerStagingResponse} from '../server/common';
+import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
 import {DbLocal, DbLocalUserDefinition, DbLocalUsersDoc, DbUser} from './db';
 
@@ -144,6 +144,7 @@ export class _ServerLink {
     if (loginUser !== undefined) {
       await this.userLogin(loginUser);
     }
+    await this._dbLocal.compact();
     this._readyEvent[0]();
   }
 
@@ -164,7 +165,7 @@ export class _ServerLink {
       if (users.map(x => x.name).indexOf(username) >= 0) {
         throw new Error(`Username '${username}' already in use.`);
       }
-      users.push({localId: userId, name: username});
+      users.push({localId: userId, localIdAll: [userId], name: username});
       users.sort((a, b) => a.name.localeCompare(b.name));
       return doc as DbLocalUsersDoc;
     });
@@ -180,7 +181,7 @@ export class _ServerLink {
     if (u.length !== 1) throw new Error('No such user?');
 
     // Set current user database
-    if (this._dbUsersLoggedIn.has(userIdLocal)) {
+    if (!this._dbUsersLoggedIn.has(userIdLocal)) {
       this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
       // TODO: remote sync code
     }
@@ -202,6 +203,7 @@ export class _ServerLink {
 
   /** Invoke the specified actions on the remote server. */
   async gameActions(action: PbemActionWithDetails<_PbemAction>[]) {
+    /*
     const comm = this._comm;
     if (comm === undefined) {
       throw new ServerError.ServerError('Bad comm');
@@ -219,28 +221,33 @@ export class _ServerLink {
     else if (s.turnEnded[this.localPlayerView.playerId]) {
       this.localPlayerActive(
           (this.localPlayerActive() + 1) % this.localPlayers.length);
-    }
+    }*/
+    throw new ServerError.ServerError('TODO');
   }
 
 
   async gameLoad<State extends _PbemState>(id: string): Promise<State> {
+    /*
     await this._commSwitch(id);
     this._settings = undefined;
     this._state = await this._comm!.gameLoad<State>();
     // TODO smarter player management
     this.localPlayers = this._state.settings.players.filter(
         x => x !== undefined) as PbemPlayer[];
-    this.localPlayerActive(0);
+    this.localPlayerActive(0);*/
+    throw new ServerError.ServerError('TODO');
     return this._state! as State;
   }
 
   async gameUndo(act: PbemActionWithDetails<_PbemAction>) {
+    /*
     const comm = this._comm;
     if (comm === undefined) {
       throw new ServerError.ServerError('Bad comm');
     }
 
-    await comm.gameUndo(act);
+    await comm.gameUndo(act);*/
+    throw new ServerError.ServerError('TODO');
   }
 
   /** Create the settings for a local game, in staging state.
@@ -251,6 +258,18 @@ export class _ServerLink {
     if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
         "No user logged in.");
     const s = await this._stagingCreateSettings(init);
+
+    // Populate player 1 with the current user.
+    s.players[0] = {
+      name: this.userCurrent!.name,
+      status: 'normal',
+      dbId: {
+        type: 'local',
+        id: this.userCurrent!.localId,
+      },
+      playerSettings: {},
+      index: 0,
+    };
 
     const gameDoc = await this._dbUserCurrent.post({
       type: 'game',
@@ -268,23 +287,43 @@ export class _ServerLink {
       phase: 'staging',
       settings: s,
     });
+    // The current user belongs to the new game.
+    await this._dbUserCurrent.post({
+      type: 'game-member',
+      gameAddr: {
+        host: {
+          type: 'local',
+          id: this.userCurrent!.localId,
+        },
+        id: gameDoc.id,
+      },
+    });
     return gameDoc.id;
   }
 
-  async stagingLoad<Settings extends _PbemSettings>(id: string): Promise<ServerStagingResponse<Settings>> {
-    await this._commSwitch(id);
-    const r = await this._comm!.stagingLoad<Settings>();
-    if (r.settings !== undefined) {
-      this._settings = r.settings;
-      this._state = undefined;
-    }
-    return r;
+  /** For the current user, load the giving game in 'staging' phase.
+   * */
+  async stagingLoad<Settings extends _PbemSettings>(id: string): Promise<{
+      host: PbemDbId,
+      isPastStaging: boolean,
+      settings: Settings,
+  }> {
+    // Ensure that, if possible, we have the requisite game document.
+    await this._checkSynced();
+    const d = await this._dbUserCurrent!.get(id);
+    if (d.type !== 'game') throw new ServerError.ServerError(`Id not a game? ${id}`);
+    return {
+      host: d.host as PbemDbId,
+      isPastStaging: d.phase !== 'staging',
+      settings: d.settings as Settings,
+    };
   }
 
   async stagingStartGame<Settings extends _PbemSettings>(gameId: string, settings: Settings): Promise<void> {
-    assert(gameId === settings.gameId);
+    /*assert(gameId === settings.gameId);
     await this._commSwitch(gameId);
-    return await this._comm!.stagingStartGame<Settings>(settings);
+    return await this._comm!.stagingStartGame<Settings>(settings);*/
+    throw new ServerError.ServerError('TODO');
   }
 
   getActivePlayerView<State extends _PbemState, Action extends _PbemAction>(nextTick: any): PlayerView<State, Action> | undefined {
@@ -295,35 +334,15 @@ export class _ServerLink {
     return this.localPlayerView as PlayerView<State, Action>;
   }
 
-  async _commSwitch(id: string): Promise<void> {
-    if (this._comm !== undefined) {
-      if (this._comm.gameId === id) return;
-
-      this._comm.close();
-      this._comm = undefined;
-    }
-
-    let newComm: any = undefined;
-    for (const [type, value] of Object.entries(IdPrefix)) {
-      if (id.startsWith(value)) {
-        newComm = (CommTypes as any)[type];
-      }
-    }
-
-    if (newComm === undefined) {
-      throw new Error(`Not implemented: ${id}`);
-    }
-
-    this._comm = new newComm();
-    try {
-      await this._comm!.connect(id);
-    }
-    catch (e) {
-      this._comm = undefined;
-      throw e;
+  /** Block until the local user database is synchronized with the remote user
+   * database, if applicable.
+   * */
+  async _checkSynced() {
+    // TODO
+    if (this._dbUserCurrent === undefined) {
+      throw new ServerError.NotLoggedInError();
     }
   }
-
 
   async _stagingCreateSettings<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<Settings> {
     const s = _PbemSettings.create() as Settings;

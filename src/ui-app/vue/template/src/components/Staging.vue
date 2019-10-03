@@ -4,19 +4,30 @@
     template(v-if="settings !== undefined")
       div
         div Players in game
-        select(v-model="playersLength")
+        select(v-model="playersLength" :disabled="!isHost")
           option(v-for="n of settings.playersValid" :value="n") {{n}}
         .players
           .player(v-for="player, idx of settings.players")
             template(v-if="player !== undefined")
-              span {{player.name}}
-              input(type="button" value="kick" @click="playerKick(idx)")
+              span.name(:class="$pbemServer.userCurrentMatches(player.dbId) ? 'self' : ''") {{player.name}}
+              template(v-if="$pbemServer.userCurrentMatches(player.dbId)")
+                input(type="button" :value="isHost ? 'Dissolve game' : 'Leave'" @click="playerKick(idx)")
+              template(v-else-if="isHost")
+                input(type="button" value="Kick" @click="playerKick(idx)")
             template(v-if="player === undefined")
               span Empty slot
-              input(type="button" value="Join as local player" @click="playerLocal(idx)")
+              input(type="button" value="Move to this slot")
+              div(v-if="isHost")
+                input(type="button" value="Add local player..." @click="playerLocalSelect(idx)")
+                //- input(type="button" value="Add friend...")
+          .overlay(v-if="playerLocalSelectIndex >= 0")
+            .back(@click="playerLocalSelectIndex = -1")
+            .front
+              input(v-for="player of playerLocalSelectPlayers" v-if="!playerInGame({type: 'local', id: player.localId})" type="button"
+                  @click="playerLocalAdd(player.localId)" :value="player.name")
 
       pbem-staging-settings(:settings="settings")
-      input(type="button" value="Start" @click="startGame")
+      input(type="button" value="Start" :disabled="!isHost" @click="startGame")
 </template>
 
 <style lang="scss">
@@ -37,6 +48,42 @@
         border-radius: 0.5rem;
         margin: 0.1rem;
         padding: 0.2rem;
+
+        .name.self {
+          font-weight: bold;
+        }
+      }
+      .overlay {
+        position: fixed;
+        left: 0;
+        top: 0;
+        right: 0;
+        bottom: 0;
+
+        > .back {
+          position: absolute;
+          left: 0;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          opacity: 0.7;
+          background-color: #000;
+        }
+
+        > .front {
+          position: relative;
+          display: inline-block;
+          border: solid 1px #000;
+          background-color: #fff;
+
+          margin: auto;
+          margin-top: 3em;
+
+          input {
+            display: block;
+            margin: 1em;
+          }
+        }
       }
     }
   }
@@ -46,15 +93,27 @@
 import Vue from 'vue';
 
 import {ServerError, ServerLink} from 'pbem-engine/lib/comm';
+import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
+import {PbemDbId} from 'pbem-engine/lib/game';
 import {Settings} from '@/game';
 
 export default Vue.extend({
   data() {
     return {
+      // When we retrieve the settings object, we also get host information.
+      host: undefined as PbemDbId | undefined,
+      // Flag used to prevent rewriting settings when not desired.
+      inCallback: false,
+      // Data for choosing local players
+      playerLocalSelectIndex: -1,
+      playerLocalSelectPlayers: [] as Array<DbLocalUserDefinition>,
       settings: undefined as Settings | undefined,
     };
   },
   computed: {
+    isHost(): boolean {
+      return this.settings !== undefined && this.$pbemServer.userCurrentMatches(this.host!);
+    },
     playersLength: {
       get: function(this: any) { return this.settings && this.settings!.players.length; },
       set: function(val) { if (this.settings) { this.settings!.players.length = val; this.settings = Object.assign({}, this.settings); } },
@@ -65,25 +124,40 @@ export default Vue.extend({
       await this.loadSettings();
     },
     settings: {
-      handler(val) {
+      handler(this: any, val) {
+        if (this.inCallback || val === undefined) return;
         console.log("Should update server");
       },
       deep: true,
     },
   },
   async mounted() {
+    await this.$pbemServer.readyEvent;
+    this.playerLocalSelectPlayers = await this.$pbemServer.userList();
     await this.loadSettings();
   },
   methods: {
+    ignoreNextSettingsChange() {
+      this.inCallback = true;
+      // Change listener happens after $nextTick, so unset inCallback in two
+      // ticks.
+      this.$nextTick(() => {
+        this.$nextTick(() => { this.inCallback = false; });
+      });
+    },
     async loadSettings() {
       this.settings = undefined;
-      let settings: Settings | undefined, isPastStaging: boolean | undefined;
+      let settings: Settings | undefined, isPastStaging: boolean | undefined,
+          host: PbemDbId | undefined;
       try {
-        ({settings, isPastStaging} = await ServerLink.stagingLoad<Settings>(
+        ({settings, host, isPastStaging} = await ServerLink.stagingLoad<Settings>(
             this.$route.params.id));
       }
       catch (e) {
         if (e instanceof ServerError.NoSuchGameError) {
+          this.$router.replace({ name: 'menu' });
+        }
+        else if (e instanceof ServerError.NotLoggedInError) {
           this.$router.replace({ name: 'menu' });
         }
         else {
@@ -94,21 +168,46 @@ export default Vue.extend({
         this.$router.replace({name: 'game', params: {id: this.$route.params.id}});
       }
       else {
+        this.host = host;
+        this.ignoreNextSettingsChange();
         this.settings = settings;
       }
+    },
+    playerInGame(id: PbemDbId): boolean {
+      for (const p of this.settings!.players) {
+        if (p === undefined) continue;
+        if (this.$pbemServer.dbIdMatches(id, p.dbId,
+            this.playerLocalSelectPlayers)) {
+          return true;
+        }
+      }
+      return false;
     },
     playerKick(idx: number) {
       this.settings!.players.splice(idx, 1, undefined);
     },
-    playerLocal(idx: number) {
-      this.settings!.players.splice(idx, 1, {
-        name: `Local ${idx}`,
-        index: idx,
+    async playerLocalAdd(localId: string) {
+      if (this.playerInGame({type: 'local', id: localId})) {
+        return;
+      }
+      this.settings!.players.splice(this.playerLocalSelectIndex, 1, {
+        name: this.playerLocalSelectPlayers.filter(x => x.localId === localId)[0].name,
+        status: 'normal',
+        dbId: {
+          type: 'local',
+          id: localId,
+        },
+        playerSettings: {},
+        index: this.playerLocalSelectIndex,
       });
+      this.playerLocalSelectIndex = -1;
+    },
+    async playerLocalSelect(idx: number) {
+      this.playerLocalSelectIndex = idx;
     },
     async startGame() {
       const settings = this.settings;
-      if (settings === undefined) return;
+      if (settings === undefined || !this.isHost) return;
       await ServerLink.stagingStartGame(this.$route.params.id, settings);
       this.$router.replace({name: 'game', params: {id: this.$route.params.id}});
     },
