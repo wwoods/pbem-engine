@@ -55,15 +55,7 @@ export const _pbemServer = {
   /** See if the current user matches a PbemDbId from a game.
    * */
   userCurrentMatches(id: PbemDbId) {
-    const u = ServerLink.userCurrent;
-    if (u === undefined) return false;
-
-    const i = id as DbUserId;
-    // TODO make this work with all user local IDs; we may be on a different
-    // device.
-    if (i.type === 'local' && u.localId === i.id) return true;
-    if (i.type === 'remote' && u.remoteId === i.id) return true;
-    return false;
+    return ServerLink.userCurrentMatches(id as DbUserId);
   },
   /** See if two IDs match, given a list of local users.
    *
@@ -71,46 +63,7 @@ export const _pbemServer = {
    * registrations.
    * */
   dbIdMatches(id1: PbemDbId, id2: PbemDbId, userList: Array<DbLocalUserDefinition>) {
-    const i1 = id1 as DbUserId;
-    const i2 = id2 as DbUserId;
-    let iLocal: DbUserId, iOther: DbUserId;
-    if (i1.type === 'system') {
-      return i2.type === 'system' && i1.id === i2.id;
-    }
-    else if (i1.type === 'remote') {
-      if (i2.type === 'remote') {
-        return i1.id === i2.id;
-      }
-      else if (i2.type === 'system') return false;
-
-      iLocal = i2;
-      iOther = i1;
-    }
-    else {
-      iLocal = i1;
-      iOther = i2;
-    }
-
-    // iLocal is populated.  Identify it in the user list, and then try to
-    // resolve iOther.
-    if (iOther.type === 'system') return false;
-
-    for (const u of userList) {
-      for (const uid of u.localIdAll) {
-        if (uid === iLocal.id) {
-          // Presumably unique match
-          if (iOther.type === 'remote') return u.remoteId === iOther.id;
-          else if (iOther.type === 'local') return u.localIdAll.indexOf(
-              iOther.id) !== -1;
-          return false;
-        }
-      }
-    }
-
-    // Unable to make a determination; shouldn't happen ever.  Would mean that
-    // e.g. a remote player is attempting to validate a player local to some
-    // user other than themselves, which is madness.
-    throw new ServerError.ServerError(`Could not resolved ${iLocal}`);
+    return ServerLink.dbIdMatches(id1 as DbUserId, id2 as DbUserId, userList);
   },
   get readyEvent() {
     return ServerLink.readyEvent;

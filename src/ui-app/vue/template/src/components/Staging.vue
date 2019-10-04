@@ -24,7 +24,8 @@
             .back(@click="playerLocalSelectIndex = -1")
             .front
               input(v-for="player of playerLocalSelectPlayers" v-if="!playerInGame({type: 'local', id: player.localId})" type="button"
-                  @click="playerLocalAdd(player.localId)" :value="player.name")
+                  @click="playerLocalAdd(player.localId, player.name)"
+                  :value="player.name")
 
       pbem-staging-settings(:settings="settings")
       input(type="button" value="Start" :disabled="!isHost" @click="startGame")
@@ -183,23 +184,27 @@ export default Vue.extend({
       }
       return false;
     },
-    playerKick(idx: number) {
-      this.settings!.players.splice(idx, 1, undefined);
+    async playerKick(idx: number) {
+      const newSettings = await ServerLink.stagingPlayerKick(
+          this.$route.params.id, idx);
+      if (newSettings === undefined) {
+        // Game dissolved
+        this.$router.replace({name: 'menu'});
+      }
+      else {
+        this.ignoreNextSettingsChange();
+        this.settings = newSettings;
+      }
     },
-    async playerLocalAdd(localId: string) {
+    async playerLocalAdd(localId: string, name: string) {
       if (this.playerInGame({type: 'local', id: localId})) {
         return;
       }
-      this.settings!.players.splice(this.playerLocalSelectIndex, 1, {
-        name: this.playerLocalSelectPlayers.filter(x => x.localId === localId)[0].name,
-        status: 'normal',
-        dbId: {
-          type: 'local',
-          id: localId,
-        },
-        playerSettings: {},
-        index: this.playerLocalSelectIndex,
-      });
+      const newSettings = await ServerLink.stagingPlayerAdd(
+          this.$route.params.id, this.playerLocalSelectIndex,
+          {type: 'local', id: localId}, name);
+      this.ignoreNextSettingsChange();
+      this.settings = newSettings as Settings;
       this.playerLocalSelectIndex = -1;
     },
     async playerLocalSelect(idx: number) {

@@ -18,6 +18,7 @@ import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
+import {DbGameDoc, DbUserId} from '../server/db';
 import {DbLocal, DbLocalUserDefinition, DbLocalUsersDoc, DbUser} from './db';
 
 /** Note that for UI reactivity, all players share the same "PlayerView" object.
@@ -135,17 +136,64 @@ export class _ServerLink {
   }
 
   async init() {
+    let localUsers: DbLocalUserDefinition[] = [];
     let loginUser: string | undefined;
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.users = doc.users || [];
       loginUser = doc.userLoginLatestId;
+      localUsers = doc.users;
       return doc as DbLocalUsersDoc;
     });
+    for (const u of localUsers) {
+      await this._dbUserLocalEnsureLoaded(u.localId);
+    }
     if (loginUser !== undefined) {
       await this.userLogin(loginUser);
     }
-    await this._dbLocal.compact();
     this._readyEvent[0]();
+  }
+
+  /** Checks if two DbUserIds match.  Requires a list of local users since
+   * their IDs can get squirrely. */
+  dbIdMatches(i1: DbUserId, i2: DbUserId, userList: Array<DbLocalUserDefinition>) {
+    let iLocal: DbUserId, iOther: DbUserId;
+    if (i1.type === 'system') {
+      return i2.type === 'system' && i1.id === i2.id;
+    }
+    else if (i1.type === 'remote') {
+      if (i2.type === 'remote') {
+        return i1.id === i2.id;
+      }
+      else if (i2.type === 'system') return false;
+
+      iLocal = i2;
+      iOther = i1;
+    }
+    else {
+      iLocal = i1;
+      iOther = i2;
+    }
+
+    // iLocal is populated.  Identify it in the user list, and then try to
+    // resolve iOther.
+    if (iOther.type === 'system') return false;
+
+    for (const u of userList) {
+      for (const uid of u.localIdAll) {
+        if (uid === iLocal.id) {
+          // Presumably unique match
+          if (iOther.type === 'remote') return u.remoteId === iOther.id;
+          else if (iOther.type === 'local') return u.localIdAll.indexOf(
+              iOther.id) !== -1;
+          return false;
+        }
+      }
+    }
+
+    // Unable to make a determination; shouldn't happen ever.  Would mean that
+    // e.g. a remote player is attempting to validate a player local to some
+    // user other than themselves, which is madness.
+    throw new ServerError.ServerError(`Could not resolved ${iLocal}`);
   }
 
   /** Create and switch to local user `username`.
@@ -181,10 +229,7 @@ export class _ServerLink {
     if (u.length !== 1) throw new Error('No such user?');
 
     // Set current user database
-    if (!this._dbUsersLoggedIn.has(userIdLocal)) {
-      this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
-      // TODO: remote sync code
-    }
+    await this._dbUserLocalEnsureLoaded(userIdLocal);
     this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
     this._userCurrent = u[0];
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
@@ -319,11 +364,78 @@ export class _ServerLink {
     };
   }
 
+  /** Add a player to a game in staging. */
+  async stagingPlayerAdd(gameId: string, slotIndex: number, playerId: DbUserId,
+    playerName: string) {
+    const d = await this._dbUserCurrent!.get(gameId) as DbGameDoc;
+    if (!this.userCurrentMatches(d.host)) {
+      throw new ServerError.ServerError("Not host, cannot add player");
+    }
+
+    if (d.settings.players[slotIndex] !== undefined) {
+      throw new ServerError.ServerError("Slot in use");
+    }
+
+    const userCurrentBestId = (
+        this.userCurrent!.remoteId !== undefined
+        ? {type: 'remote', id: this.userCurrent!.remoteId}
+        : {type: 'local', id: this.userCurrent!.localId}) as DbUserId;
+
+    if (playerId.type === 'local') {
+      d.settings.players[slotIndex] = {
+          name: playerName,
+          status: 'normal',
+          dbId: playerId,
+          playerSettings: {},
+          index: slotIndex,
+      };
+      const dbOther = this._dbUsersLoggedIn.get(playerId.id);
+      if (dbOther === undefined) throw new ServerError.ServerError(
+          "Specified local user not actually local?");
+      await dbOther.post({
+        type: 'game-member',
+        gameAddr: {
+          host: userCurrentBestId,
+          id: gameId,
+        },
+      });
+    }
+    else if (playerId.type === 'remote') {
+      throw new ServerError.ServerError("Not implemented.  Need to "
+          + "reserve slot, and create a document which will be replicated "
+          + "to the remote user's repository.");
+    }
+    else {
+      throw new ServerError.ServerError(
+          `Non-local or remote playerId? ${playerId.type}`);
+    }
+
+    await this._dbUserCurrent!.put(d);
+    return d.settings;
+  }
+
+  /** Kick a player from a game in staging.  */
+  async stagingPlayerKick(gameId: string, slotIndex: number) {
+  }
+
+  /** Take a game in staging and start it. */
   async stagingStartGame<Settings extends _PbemSettings>(gameId: string, settings: Settings): Promise<void> {
     /*assert(gameId === settings.gameId);
     await this._commSwitch(gameId);
     return await this._comm!.stagingStartGame<Settings>(settings);*/
     throw new ServerError.ServerError('TODO');
+  }
+
+  userCurrentMatches(id: DbUserId) {
+    const u = this.userCurrent;
+    if (u === undefined) return false;
+
+    const i = id as DbUserId;
+    // TODO make this work with all user local IDs; we may be on a different
+    // device.
+    if (i.type === 'local' && u.localId === i.id) return true;
+    if (i.type === 'remote' && u.remoteId === i.id) return true;
+    return false;
   }
 
   getActivePlayerView<State extends _PbemState, Action extends _PbemAction>(nextTick: any): PlayerView<State, Action> | undefined {
@@ -341,6 +453,15 @@ export class _ServerLink {
     // TODO
     if (this._dbUserCurrent === undefined) {
       throw new ServerError.NotLoggedInError();
+    }
+  }
+
+  async _dbUserLocalEnsureLoaded(userIdLocal: string) {
+    if (!this._dbUsersLoggedIn.has(userIdLocal)) {
+      this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
+      // TODO: remote sync code
+
+      await this._dbUsersLoggedIn.get(userIdLocal)!.compact();
     }
   }
 
