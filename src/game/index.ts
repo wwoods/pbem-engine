@@ -12,7 +12,7 @@ export interface PbemPlayer {
   name: string;
 
   // Status of this slot, allowing for invited positions.
-  status: 'normal' | 'reserved' | 'bot';
+  status: 'joined' | 'invited' | 'bot';
 
   // Object for resolving this player entity at the DB level
   dbId?: PbemDbId;
@@ -133,6 +133,9 @@ export interface PbemServerView<State extends _PbemState, Action extends _PbemAc
 export interface _PbemSettings {
   gameId?: string;
   version: any;
+  // Game description, for rendering in a lobby.  If unspecified, populated
+  // with a string in pbem-engine.
+  desc?: any;
 
   playersValid: Array<number>;
   playersMin: number;

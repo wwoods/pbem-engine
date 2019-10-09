@@ -177,8 +177,7 @@ export default Vue.extend({
     playerInGame(id: PbemDbId): boolean {
       for (const p of this.settings!.players) {
         if (p === undefined) continue;
-        if (this.$pbemServer.dbIdMatches(id, p.dbId,
-            this.playerLocalSelectPlayers)) {
+        if (this.$pbemServer.dbIdMatches(id, p.dbId)) {
           return true;
         }
       }

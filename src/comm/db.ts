@@ -24,5 +24,7 @@ export type DbLocalUserDefinition = {
   localIdAll: string[];
   // The user's unique remote ID.
   remoteId?: string;
+  // The user's unique remote name.
+  remoteName?: string;
 };
 

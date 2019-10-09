@@ -112,9 +112,9 @@
      borderopacity="1.0"
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
-     inkscape:zoom="2.2536644"
+     inkscape:zoom="2.2239766"
      inkscape:cx="332.34543"
-     inkscape:cy="913.71"
+     inkscape:cy="804.70018"
      inkscape:document-units="mm"
      inkscape:current-layer="layer1"
      showgrid="false"
@@ -131,7 +131,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title></dc:title>
+        <dc:title />
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -649,5 +649,38 @@
          x="8.1006956"
          y="128.0594"
          style="stroke-width:0.26458332">Bottom line: two connections per user per game, plus one connection per active user.</tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:3.52777767px;line-height:1.25;font-family:arial;-inkscape-font-specification:arial;letter-spacing:0px;word-spacing:0px;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.26458332"
+       x="-83.472382"
+       y="170.9109"
+       id="text1556"><tspan
+         sodipodi:role="line"
+         id="tspan1554"
+         x="-83.472382"
+         y="170.9109"
+         style="stroke-width:0.26458332">Inviting players to a game:</tspan><tspan
+         sodipodi:role="line"
+         x="-83.472382"
+         y="175.32063"
+         style="stroke-width:0.26458332"
+         id="tspan1560">Local -&gt; Run replication + game locally.</tspan><tspan
+         sodipodi:role="line"
+         x="-83.472382"
+         y="179.73035"
+         style="stroke-width:0.26458332"
+         id="tspan933">Remote -&gt; Run replication + game remotely.</tspan><tspan
+         sodipodi:role="line"
+         x="-83.472382"
+         y="184.14008"
+         style="stroke-width:0.26458332"
+         id="tspan1568">Both should use the same code.</tspan></text>
+    <rect
+       style="fill:none;fill-opacity:1;stroke:#fcff27;stroke-width:1;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect1558"
+       width="107.53967"
+       height="29.557501"
+       x="-91.573082"
+       y="161.40138" />
   </g>
 </svg>

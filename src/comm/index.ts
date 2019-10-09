@@ -10,15 +10,15 @@
  * */
 import assert from 'assert';
 
-import PouchDb from 'pouchdb';
-import PouchDbUpsert from 'pouchdb-upsert';
-PouchDb.plugin(PouchDbUpsert);
+import PouchDb from '../server/pouch';
 
 import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer,
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
-import {DbGameDoc, DbUserId} from '../server/db';
+import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
+  DbUserId, DbUserIdsDoc} from '../server/db';
+import {ServerGameDaemon} from '../server/gameDaemon';
 import {DbLocal, DbLocalUserDefinition, DbLocalUsersDoc, DbUser} from './db';
 
 /** Note that for UI reactivity, all players share the same "PlayerView" object.
@@ -128,7 +128,10 @@ export class _ServerLink {
   _dbLocal = new PouchDb<DbLocal>('pbem-local');
   _dbUserCurrent?: PouchDB.Database<DbUser>;
   _userCurrent?: DbLocalUserDefinition;
+  _usersLocal: DbLocalUserDefinition[] = [];
   _dbUsersLoggedIn = new Map<string, PouchDB.Database<DbUser>>();
+  // [Local user, local game] -> replication to other local user.
+  _dbLocalReplications = new Map<string, Map<string, any>>();
   _$nextTick?: (cb: () => void) => void;
 
   get userCurrent(): Readonly<DbLocalUserDefinition> | undefined {
@@ -136,15 +139,14 @@ export class _ServerLink {
   }
 
   async init() {
-    let localUsers: DbLocalUserDefinition[] = [];
     let loginUser: string | undefined;
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.users = doc.users || [];
       loginUser = doc.userLoginLatestId;
-      localUsers = doc.users;
+      this._usersLocal = doc.users;
       return doc as DbLocalUsersDoc;
     });
-    for (const u of localUsers) {
+    for (const u of this._usersLocal) {
       await this._dbUserLocalEnsureLoaded(u.localId);
     }
     if (loginUser !== undefined) {
@@ -153,10 +155,11 @@ export class _ServerLink {
     this._readyEvent[0]();
   }
 
-  /** Checks if two DbUserIds match.  Requires a list of local users since
+  /** Checks if two DbUserIds match.  Uses a list of local users since
    * their IDs can get squirrely. */
-  dbIdMatches(i1: DbUserId, i2: DbUserId, userList: Array<DbLocalUserDefinition>) {
+  dbIdMatches(i1: DbUserId, i2: DbUserId) {
     let iLocal: DbUserId, iOther: DbUserId;
+    const userList = this._usersLocal;
     if (i1.type === 'system') {
       return i2.type === 'system' && i1.id === i2.id;
     }
@@ -193,7 +196,7 @@ export class _ServerLink {
     // Unable to make a determination; shouldn't happen ever.  Would mean that
     // e.g. a remote player is attempting to validate a player local to some
     // user other than themselves, which is madness.
-    throw new ServerError.ServerError(`Could not resolved ${iLocal}`);
+    throw new ServerError.ServerError(`Could not resolve local ${iLocal.id}`);
   }
 
   /** Create and switch to local user `username`.
@@ -209,7 +212,7 @@ export class _ServerLink {
         type: 'user-local-placeholder'});
     let userId: string = userPlaceholder.id;
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
-      const users = doc.users!;
+      const users = this._usersLocal = doc.users!;
       if (users.map(x => x.name).indexOf(username) >= 0) {
         throw new Error(`Username '${username}' already in use.`);
       }
@@ -297,7 +300,7 @@ export class _ServerLink {
 
   /** Create the settings for a local game, in staging state.
    *
-   * The current user is automatically player 1, which should be locked (TODO).
+   * The current user is automatically player 1 to start.
    * */
   async stagingCreateLocal<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<string> {
     if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
@@ -307,7 +310,7 @@ export class _ServerLink {
     // Populate player 1 with the current user.
     s.players[0] = {
       name: this.userCurrent!.name,
-      status: 'normal',
+      status: 'joined',
       dbId: {
         type: 'local',
         id: this.userCurrent!.localId,
@@ -316,15 +319,17 @@ export class _ServerLink {
       index: 0,
     };
 
-    const gameDoc = await this._dbUserCurrent.post({
-      type: 'game',
-      host: {
+    const gameHost = {
         type: 'local',
         // Use the specific local ID on this device.  Note that other devices
         // with this user's account will still be able to play this game,
         // thanks to the 'ids' document.
         id: this.userCurrent!.localId,
-      },
+    } as DbUserId;
+
+    const gameDoc = await this._dbUserCurrent.post({
+      type: 'game-data',
+      host: gameHost,
       createdBy: {
         type: 'local',
         id: this.userCurrent!.localId,
@@ -334,14 +339,15 @@ export class _ServerLink {
     });
     // The current user belongs to the new game.
     await this._dbUserCurrent.post({
-      type: 'game-member',
+      type: 'game-response-member',
+      userId: gameHost,
       gameAddr: {
-        host: {
-          type: 'local',
-          id: this.userCurrent!.localId,
-        },
+        host: gameHost,
         id: gameDoc.id,
       },
+      game: gameDoc.id,
+      hostName: this.userCurrent!.remoteName || this.userCurrent!.name,
+      status: 'joined',
     });
     return gameDoc.id;
   }
@@ -356,7 +362,8 @@ export class _ServerLink {
     // Ensure that, if possible, we have the requisite game document.
     await this._checkSynced();
     const d = await this._dbUserCurrent!.get(id);
-    if (d.type !== 'game') throw new ServerError.ServerError(`Id not a game? ${id}`);
+    if (d.type !== 'game-data') throw new ServerError.ServerError(
+        `Id not a game? ${id}`);
     return {
       host: d.host as PbemDbId,
       isPastStaging: d.phase !== 'staging',
@@ -366,8 +373,16 @@ export class _ServerLink {
 
   /** Add a player to a game in staging. */
   async stagingPlayerAdd(gameId: string, slotIndex: number, playerId: DbUserId,
-    playerName: string) {
+      playerName: string) {
     const d = await this._dbUserCurrent!.get(gameId) as DbGameDoc;
+    if (d.type !== 'game-data') {
+      throw new ServerError.ServerError(`Not a game doc? ${gameId}`);
+    }
+
+    if (d.phase !== 'staging') {
+      throw new ServerError.ServerError(`Game not staging?`);
+    }
+
     if (!this.userCurrentMatches(d.host)) {
       throw new ServerError.ServerError("Not host, cannot add player");
     }
@@ -379,47 +394,127 @@ export class _ServerLink {
     const userCurrentBestId = (
         this.userCurrent!.remoteId !== undefined
         ? {type: 'remote', id: this.userCurrent!.remoteId}
-        : {type: 'local', id: this.userCurrent!.localId}) as DbUserId;
+      : {type: 'local', id: this.userCurrent!.localId}) as DbUserId;
 
-    if (playerId.type === 'local') {
-      d.settings.players[slotIndex] = {
-          name: playerName,
-          status: 'normal',
-          dbId: playerId,
-          playerSettings: {},
-          index: slotIndex,
-      };
-      const dbOther = this._dbUsersLoggedIn.get(playerId.id);
-      if (dbOther === undefined) throw new ServerError.ServerError(
-          "Specified local user not actually local?");
-      await dbOther.post({
-        type: 'game-member',
-        gameAddr: {
-          host: userCurrentBestId,
-          id: gameId,
-        },
-      });
-    }
-    else if (playerId.type === 'remote') {
-      throw new ServerError.ServerError("Not implemented.  Need to "
-          + "reserve slot, and create a document which will be replicated "
-          + "to the remote user's repository.");
-    }
-    else {
-      throw new ServerError.ServerError(
-          `Non-local or remote playerId? ${playerId.type}`);
-    }
+    d.settings.players[slotIndex] = {
+      name: playerName,
+      status: 'invited',
+      dbId: playerId,
+      playerSettings: {},
+      index: slotIndex,
+    };
+    await this._dbUserCurrent!.bulkDocs([
+      // Create the invitation block, which triggers the needed replications.
+      {
+        type: 'game-invitation',
+        game: d._id,
+        userId: playerId,
+      } as DbUserGameInvitationDoc,
+      // Also update the game's cache
+      d as any,
+    ]);
 
-    await this._dbUserCurrent!.put(d);
     return d.settings;
   }
 
-  /** Kick a player from a game in staging.  */
+  /** Kick a player from a game in staging.
+   *
+   * Returns either new settings, without the kicked player, OR returns
+   * undefined to signify that the player should be returned to the menu.
+   * */
   async stagingPlayerKick(gameId: string, slotIndex: number) {
+    // Make sure game is loaded
+    const d = await this._dbUserCurrent!.get(gameId) as DbGameDoc;
+    if (d.type !== 'game-data') {
+      throw new ServerError.ServerError(`Not a game? ${gameId}`);
+    }
+
+    if (d.phase !== 'staging') {
+      throw new ServerError.ServerError(`Can only kick from staging`);
+    }
+
+    // No player in that slot?  Nothing to kick.
+    const p = d.settings.players[slotIndex];
+    if (p === undefined) return d.settings;
+
+    if (!this.userCurrentMatches(d.host)) {
+      // If not the host, can only kick self.
+      if (!this.userCurrentMatches(p!.dbId)) {
+        throw new ServerError.ServerError("Cannot kick player if not host");
+      }
+
+      // Fetch own membership
+      const dms = (await this._dbUserCurrent!.find({
+        selector: {
+          type: 'game-response-member',
+          'game': d._id,
+        },
+      })).docs as Array<DbUserGameMembershipDoc>;
+
+      // Update our membership, which should trickle to the appropriate
+      // source.  A change listener on our own database will stop the
+      // replication and delete the game data.
+      for (const dm of dms) {
+        dm.status = 'leaving';
+      }
+      await this._dbUserCurrent!.bulkDocs(dms);
+      return undefined;
+    }
+    else {
+      // Host can kick anyone; if they kick themselves, the game is dissolved.
+      if (this.userCurrentMatches(p!.dbId)) {
+        // Dissolve game; revoke all players' access
+        const dms = (await this._dbUserCurrent!.find({
+          selector: {
+            type: 'game-invitation',
+            game: gameId,
+          },
+        })).docs;
+        for (const dm of dms) {
+          dm._deleted = true;
+        }
+        // Revoke our own membership
+        const hostMember = (await this._dbUserCurrent!.find({
+          selector: {
+            type: 'game-response-member',
+            game: gameId,
+          },
+        })).docs;
+        for (const hm of hostMember) {
+          hm._deleted = true;
+          dms.unshift(hm);
+        }
+        // Also flag the game as ended, and delete it
+        d.phase = 'ending';
+        d._deleted = true;
+        dms.unshift(d as any);
+
+        await this._dbUserCurrent!.bulkDocs(dms);
+        return undefined;
+      }
+      else {
+        // Dissolving their invitation should be sufficient.
+        const dms = (await this._dbUserCurrent!.find({
+          selector: {
+            type: 'game-invitation',
+            game: gameId,
+            userId: {$eq: p!.dbId},
+          },
+        })).docs;
+        for (const dm of dms) {
+          dm._deleted = true;
+        }
+        d.settings.players[slotIndex] = undefined;
+        dms.push(d as any);
+        await this._dbUserCurrent!.bulkDocs(dms);
+      }
+    }
+    return d.settings;
   }
 
   /** Take a game in staging and start it. */
   async stagingStartGame<Settings extends _PbemSettings>(gameId: string, settings: Settings): Promise<void> {
+    // Ensure fully replicated first?  Or only valid for local games?
     /*assert(gameId === settings.gameId);
     await this._commSwitch(gameId);
     return await this._comm!.stagingStartGame<Settings>(settings);*/
@@ -459,9 +554,125 @@ export class _ServerLink {
   async _dbUserLocalEnsureLoaded(userIdLocal: string) {
     if (!this._dbUsersLoggedIn.has(userIdLocal)) {
       this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
-      // TODO: remote sync code
 
-      await this._dbUsersLoggedIn.get(userIdLocal)!.compact();
+      // When we load a db, compact it, ensure indices exist
+      const db = await this._dbUsersLoggedIn.get(userIdLocal)!;
+      await db.compact();
+      // Index DbUserGameMembershipDoc
+      // TODO when https://github.com/pouchdb/pouchdb/issues/7927 is fixed,
+      // this index should be ['type', 'game'].
+      await db.createIndex({index: {fields: ['type']}});
+      await db.createIndex({index: {fields: ['game']}});
+
+      // Local synchronization code.  More fancy, since it requires watching
+      // changes.
+      // Databases may be quite large given 1 action = 1 document, so we'll
+      // look at changes going forward, and find immediately relevant documents
+      // at database init.
+      const userGames = new Map<string, ServerGameDaemon>();
+      const userIdsDocs = (await db.find({selector: {type: 'user-ids'}})).docs;
+      if (userIdsDocs.length === 0) {
+        const d: DbUserIdsDoc = {
+          _id: 'user-ids',
+          type: 'user-ids',
+          localIds: [userIdLocal],
+          localIdActive: userIdLocal,
+        };
+        const r = await db.put(d);
+        (d as any)._rev = r.rev;
+        userIdsDocs.push(d as any);
+      }
+      else if (userIdsDocs.length !== 1) {
+        console.log(`More than one userIdsDocs? ${userIdsDocs.length}`);
+      }
+      let userIdLocalActive = (userIdsDocs[0] as DbUserIdsDoc).localIdActive;
+      db.findContinuous(
+          {type: {$in: ['game-data', 'game-response-member', 'user-ids']}},
+        doc => {
+          const userLocal: DbUserId = {
+            type: 'local',
+            id: userIdLocal,
+          };
+
+          // user-ids: update player's current active ID, terminate games if
+          // changed.
+          if (doc.type === 'user-ids') {
+            userIdLocalActive = doc.localIdActive;
+            for (const gd of userGames.values()) {
+              gd.changeLocalActiveId(userIdLocalActive);
+            }
+            return;
+          }
+
+          // game-data: see if we're the host, if so, start a game listener
+          // which handles actions.
+          if (doc.type === 'game-data') {
+            if (doc.host.type !== 'local'
+                || !this.dbIdMatches(doc.host, userLocal)) {
+              return;
+            }
+
+            if (doc.phase === 'end' || doc._deleted) {
+              // If a daemon isn't started, it's OK, we don't need one.
+              // If one is started, it will catch this change on its own.
+              return;
+            }
+
+            // Only goal is to ensure a daemon is started; it will be
+            // listening for its own game-data changes after that.
+            if (userGames.has(doc._id!)) return;
+
+            const d = new ServerGameDaemon(db as PouchDB.Database<DbGame>,
+                doc, {
+              localId: userIdLocal,
+              localActiveId: userIdLocalActive,
+              dbResolver: userId => {
+                if (userId.type !== 'local') return undefined;
+
+                for (const u of this._usersLocal) {
+                  if (u.localIdAll.indexOf(userId.id) !== -1) {
+                    return this._dbUsersLoggedIn.get(u.localId);
+                  }
+                }
+                return undefined;
+              },
+            });
+            d.events.on('delete', () => {
+              userGames.delete(d.id);
+            });
+            userGames.set(doc._id!, d);
+            return;
+          }
+
+          // game-response-member: see if we're the joiner, and if so,
+          // replicate this document to the host so they may begin
+          // bidirectional repllication.
+          if (doc.type === 'game-response-member') {
+            if (!this.dbIdMatches(doc.userId, userLocal)
+                || doc.userId.type !== 'local'
+                || doc.userId.id === doc.gameAddr.host.id) {
+              return;
+            }
+
+            if (doc.gameAddr.host.type !== 'local') {
+              throw new ServerError.ServerError(`Game response ${doc._id} `
+                + `indicated a local game, but the game address was not `
+                + `local?`);
+            }
+            const targDb = this._dbUsersLoggedIn.get(doc.gameAddr.host.id);
+            if (targDb !== undefined) {
+              db.replicate.to(targDb, {
+                doc_ids: [doc._id!],
+              });
+            }
+            return;
+          }
+
+          throw new ServerError.ServerError(`Cannot handle ${doc.type}`);
+        });
+
+      // TODO: remote sync code (only this user <-> remote user, nothing too
+      // fancy).
     }
   }
 

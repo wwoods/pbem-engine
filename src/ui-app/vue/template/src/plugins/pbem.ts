@@ -62,8 +62,8 @@ export const _pbemServer = {
    * This function is to be used in 'staging' setup only, to prevent duplicate
    * registrations.
    * */
-  dbIdMatches(id1: PbemDbId, id2: PbemDbId, userList: Array<DbLocalUserDefinition>) {
-    return ServerLink.dbIdMatches(id1 as DbUserId, id2 as DbUserId, userList);
+  dbIdMatches(id1: PbemDbId, id2: PbemDbId) {
+    return ServerLink.dbIdMatches(id1 as DbUserId, id2 as DbUserId);
   },
   get readyEvent() {
     return ServerLink.readyEvent;

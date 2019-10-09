@@ -27,6 +27,7 @@
 
 <script lang="ts">
 import Vue from 'vue';
+import PouchDb from 'pbem-engine/lib/server/pouch';
 
 import {Settings} from '@/game';
 
