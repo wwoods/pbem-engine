@@ -59,6 +59,7 @@ export type DbUserIdsDoc = {
 export interface DbGameDoc {
   _id?: string;
   _deleted?: boolean;
+  game: string;  // Matches _id
   type: 'game-data';
   // The host entity responsible for running this game.
   host: DbUserId;

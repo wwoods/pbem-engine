@@ -7,6 +7,8 @@ import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
   DbUser, DbUserId} from './db';
 import PouchDb from './pouch';
 
+import {PbemPlayer} from '../game';
+
 /** Runs a game, from the DB point of view.
  *
  * Should do everything possible to maintain a valid state, even when faced
@@ -80,22 +82,9 @@ export class ServerGameDaemon {
 
     (async () => {
 
+      await this._handleSettingsCheck();
+
       let w: PouchDB.FindContinuousCancel;
-      w = this._db.findContinuous({_id: {$eq: this._id}}, doc => {
-        const d = doc as DbGameDoc;
-
-        // Game data changed
-        if (d.phase === 'end') {
-          this.deactivate();
-          return;
-        }
-
-        if (d.phase === 'ending') {
-          // TODO - replicate once to everyone, change state to 'end'.
-        }
-      });
-      this._watchers.push(w);
-
       w = this._db.findContinuous({game: this._id}, doc => {
         this._handleGameDoc(doc);
       });
@@ -129,11 +118,22 @@ export class ServerGameDaemon {
     });
   }
 
-  /** Handle any game-related doucment change that is not the game itself.
+  /** Handle any game-related document change that is not the game itself.
    * */
   _handleGameDoc(doc: DbGame) {
     (async () => {
-      if (doc.type === 'game-invitation') {
+      if (doc.type === 'game-data') {
+        // Game data changed
+        if (doc.phase === 'end' || doc._deleted) {
+          this.deactivate();
+          return;
+        }
+
+        if (doc.phase === 'ending') {
+          // TODO - replicate once to everyone, change state to 'end'.
+        }
+      }
+      else if (doc.type === 'game-invitation') {
         const gameLocal = (this._host.type === 'local');
         const userLocal = (doc.userId.type === 'local');
         if (gameLocal !== userLocal) {
@@ -147,7 +147,8 @@ export class ServerGameDaemon {
         if (userDb === undefined) throw new ServerError.ServerError(
           `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
 
-        await this._handleUserResponseUpdate(doc.userId, userDb);
+        await this._handleUserResponseUpdate(doc.userId, userDb, doc);
+        await this._handleSettingsCheck();
       }
       else if (doc.type === 'game-response-member') {
         // These documents are replicated to our database as a special case,
@@ -158,20 +159,154 @@ export class ServerGameDaemon {
         if (userDb === undefined) throw new ServerError.ServerError(
           `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
 
-        await this._handleUserResponseUpdate(doc.userId, userDb);
+        await this._handleUserResponseUpdate(doc.userId, userDb, doc);
+        await this._handleSettingsCheck();
       }
     })().catch(e => {
       this._debug(`Error for ${doc._id} / ${doc.type}: ${e}`);
     });
   }
 
+  /** Poll game settings.  Poll game-membership and
+   * game-invitation documents and validate that 'game-data' document has
+   * players in slots.  Changes 'game-data' and invitations to be in parity,
+   * with preference for respecting invitations.
+   * */
+  async _handleSettingsCheck() {
+    const settings = await this._db.get(this._id) as DbGameDoc;
+
+    const invites: DbUserGameInvitationDoc[] = (await this._db.find({selector: {
+      type: 'game-invitation', game: this._id}})).docs as DbUserGameInvitationDoc[];
+    const responsesDocs: DbUserGameMembershipDoc[] = (await this._db.find({selector: {
+      type: 'game-response-member', game: this._id}})).docs as DbUserGameMembershipDoc[];
+
+    let changed: boolean = false;
+
+    // First source of truth: invites + host
+    const playerToStr = (a: DbUserId|undefined) => (
+      a === undefined ? 'bot' : `${a.type}--${a.id}`);
+    const players = settings.settings.players.map(
+      a => a !== undefined ? playerToStr(a.dbId) : undefined);
+    const responses = new Map<string, string>();
+    for (const d of responsesDocs) {
+      responses.set(playerToStr(d.userId), d.status);
+    }
+    const slotsSeen = new Set<number>();
+
+    /** Forcibly, but preferentially, add a player. */
+    const addPlayer = async (player: PbemPlayer, canKick: boolean) => {
+      const uidNoPlayer = players.indexOf(undefined);
+      const uidBot = players.indexOf('bot');
+      const uidLast = canKick ? players.length - 1 : -1;
+
+      const uid = (
+        uidNoPlayer !== -1 ? uidNoPlayer
+        : uidBot !== -1 ? uidBot
+        : uidLast);
+      if (uid === -1) return -1;
+
+      // TODO - poll local / remote name store.
+      const name = player.dbId.id;
+      player.name = name;
+
+      changed = true;
+      player.index = uid;
+      settings.settings.players[uid] = player;
+      return uid;
+    };
+
+    // # host
+    if (['local', 'remote'].indexOf(settings.host.type) !== -1) {
+      // Host must be a player
+      const p = players.indexOf(playerToStr(settings.host));
+      if (p !== -1) {
+        slotsSeen.add(p);
+      }
+      else {
+        const slot = await addPlayer({
+          name: '<error>',
+          status: 'joined',
+          dbId: settings.host,
+          playerSettings: {},
+          index: -1,
+        }, true);
+        slotsSeen.add(slot);
+      }
+    }
+
+    // # invites
+    for (const i of invites) {
+      const ps = playerToStr(i.userId);
+      const p = players.indexOf(ps);
+      const r = responses.get(ps);
+      if (r !== undefined && r !== 'invited' && r !== 'joined') {
+        // Negative response.  Kick them out!
+        if (p !== -1) {
+          changed = true;
+          slotsSeen.add(p);
+          delete settings.settings.players[p];
+        }
+      }
+      else {
+        // Should be in game, with following state
+        const status = r === 'joined' ? 'joined' : 'invited';
+        if (p === -1) {
+          const uid = await addPlayer({
+            name: '<error>',
+            status: status,
+            dbId: settings.host,
+            playerSettings: {},
+            index: -1,
+          }, false);
+          if (uid === -1) {
+            // Delete this invite, I suppose.
+            i._deleted = true;
+            await this._db.put(i);
+          }
+          else {
+            slotsSeen.add(uid);
+          }
+        }
+        else {
+          slotsSeen.add(p);
+          const pp = settings.settings.players[p]!;
+          if (pp.status !== status) {
+            changed = true;
+            pp.status = status;
+          }
+        }
+      }
+    }
+
+    // Finally, any unseen slots were clearly uninvited
+    const settingsPlayers = settings.settings.players;
+    for (let i = 0, m = settingsPlayers.length; i < m; i++) {
+      const p = settingsPlayers[i];
+      if (p === undefined || slotsSeen.has(i)) continue;
+      if (p.status === 'bot') continue;
+      changed = true;
+      delete settingsPlayers[i];
+    }
+
+    if (changed) {
+      await this._db.put(settings);
+    }
+  }
+
   /** Arguments:
    * userId - ID of user whose response is being updated.
    * */
-  async _handleUserResponseUpdate(userId: DbUserId, userDb: PouchDB.Database<DbUser>) {
+  async _handleUserResponseUpdate(userId: DbUserId, userDb: PouchDB.Database<DbUser>,
+      docCause: DbUserGameMembershipDoc | DbUserGameInvitationDoc) {
     // Ignore any user response updates that match the host.
     if (this._host.type === userId.type && this._host.id === userId.id) {
       return;
+    }
+
+    if (docCause._deleted) {
+      // find(), used below, will not return deleted docs.  So, stop whatever
+      // replication we were doing, and keep this in mind.
+      this._handleReplication(userDb, false);
     }
 
     // Any user response update requires information on both invitations and
@@ -185,9 +320,14 @@ export class ServerGameDaemon {
       // Invite this user, IF we can find a valid invitation.
       if (invites.length === 0) {
         // Nothing to do - no active response and no active invite.
+        // Can ensure replication isn't ongoing (find() doesn't return deleted)
+        if (!docCause._deleted) {
+          throw new ServerError.ServerError("Should not trigger a no-invite, "
+            + "no-response membership change without a deleted doc.");
+        }
         return;
       }
-      else {
+      else if (!docCause._deleted || docCause.type !== 'game-response-member') {
         // Go ahead with the invitation.
         await userDb.post({
           type: 'game-response-member',
@@ -206,6 +346,10 @@ export class ServerGameDaemon {
       // There's a response; confirm OK by making sure invitation exists.
       if (invites.length === 0) {
         // No invitation - they should be rejected.
+        if (!docCause._deleted) {
+          this._handleReplication(userDb, false);
+        }
+        
         for (const r of responses) {
           r._deleted = true;
         }
@@ -219,7 +363,7 @@ export class ServerGameDaemon {
         await this._db.bulkDocs(dd);
         return;
       }
-      
+
       const d = responses[0] as DbUserGameMembershipDoc;
       if (d.status !== 'joined' && d.status !== 'invited') {
         // Leaving; make sure we're not replicating them, and delete the
@@ -239,9 +383,9 @@ export class ServerGameDaemon {
     if (uId === this._db.name) return;
 
     if (!enable) {
-      this._debug(`replication stop for ${uId}`);
       const r = this._replications.get(uId);
       if (r !== undefined) {
+        this._debug(`replication stop for ${uId}`);
         this._replications.delete(uId);
         for (const rr of r) rr.cancel();
       }
@@ -281,42 +425,57 @@ export class ServerGameDaemon {
   /** ALWAYS called after _handleReplication().
    * */
   async _handleUserLeave(userId: DbUserId, userDb: PouchDB.Database<DbUser>) {
-    // Ensure their response is deleted, which will keep this behavior, and
-    // regardless of replication, will inform them that they were kicked.
-    {
-      const {docs} = await userDb.find({
-        selector: {
-          type: 'game-response-member',
-          game: this._id,
-          userId: userId,
-        },
-      });
-      const ddocs = docs.filter(d => !d._deleted);
-      if (ddocs.length > 0) {
-        for (const d of ddocs) {
-          d._deleted = true;
-        }
-        await userDb.bulkDocs(ddocs);
-      }
-    }
-
+    const memberSelector = {
+      game: this._id,
+      userId: {$eq: userId},
+    };
     // Revoke their invitation locally, which will further terminate
     // replication.
     {
       const {docs} = await this._db.find({
         selector: {
-          type: {$in: ['game-response-member', 'game-invitation']},
-          game: this._id,
-          userId: userId,
+          type: 'game-invitation',
+          ...memberSelector,
         },
       });
-      const ddocs = docs.filter(d => !d._deleted);
-      if (ddocs.length > 0) {
-        for (const d of ddocs) {
+      if (docs.length > 0) {
+        for (const d of docs) {
           d._deleted = true;
         }
-        await this._db.bulkDocs(ddocs);
+        await this._db.bulkDocs(docs);
+      }
+    }
+
+    // Ensure their response is 'leaving', which will keep this behavior, and
+    // regardless of replication, will inform them that they were kicked.
+    {
+      const {docs} = await userDb.find({
+        selector: {
+          type: 'game-response-member',
+          ...memberSelector,
+        },
+      });
+      if (docs.length > 0) {
+        for (const d of docs) {
+          d._deleted = true;
+        }
+        await userDb.bulkDocs(docs);
+      }
+    }
+
+    // Also remove our artifact, now that replication should have stopped
+    // (since the invitation was removed).
+    {
+      const {docs} = await this._db.find({
+        selector: {
+          type: 'game-response-member',
+          ...memberSelector,
+        },
+      });
+      if (docs.length > 0) {
+        for (const d of docs) d._deleted = true;
+        await this._db.bulkDocs(docs);
       }
     }
   }
-}; TODO GET / FIND WILL NOT RETURN _DELETED, ONLY CHANGES WILL.
+};

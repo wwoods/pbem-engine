@@ -109,6 +109,7 @@ export default Vue.extend({
       playerLocalSelectIndex: -1,
       playerLocalSelectPlayers: [] as Array<DbLocalUserDefinition>,
       settings: undefined as Settings | undefined,
+      settingsWatch: undefined as any,
     };
   },
   computed: {
@@ -121,8 +122,8 @@ export default Vue.extend({
     },
   },
   watch: {
-    async '$route.params.id'(val) {
-      await this.loadSettings();
+    '$route.params.id'(val) {
+      this.loadSettings();
     },
     settings: {
       handler(this: any, val) {
@@ -135,7 +136,10 @@ export default Vue.extend({
   async mounted() {
     await this.$pbemServer.readyEvent;
     this.playerLocalSelectPlayers = await this.$pbemServer.userList();
-    await this.loadSettings();
+    this.loadSettings();
+  },
+  beforeDestroy() {
+    if (this.settingsWatch !== undefined) this.settingsWatch.cancel();
   },
   methods: {
     ignoreNextSettingsChange() {
@@ -146,33 +150,36 @@ export default Vue.extend({
         this.$nextTick(() => { this.inCallback = false; });
       });
     },
-    async loadSettings() {
+    loadSettings() {
+      if (this.settingsWatch !== undefined) this.settingsWatch.cancel();
       this.settings = undefined;
+      const id = this.$route.params.id;
+      this.settingsWatch = ServerLink.stagingLoad<Settings>(
+        id,
+        async ({error, settings, host, isPastStaging}) => {
+          if (error !== undefined) {
+            if (error instanceof ServerError.NoSuchGameError) {
+              this.$router.replace({ name: 'menu' });
+            }
+            else if (error instanceof ServerError.NotLoggedInError) {
+              this.$router.replace({ name: 'menu' });
+            }
+            else {
+              throw error;
+            }
+          }
+
+          if (isPastStaging) {
+            this.$router.replace({name: 'game', params: {id}});
+          }
+          else {
+            this.host = host;
+            this.ignoreNextSettingsChange();
+            this.settings = settings;
+          }
+        });
       let settings: Settings | undefined, isPastStaging: boolean | undefined,
           host: PbemDbId | undefined;
-      try {
-        ({settings, host, isPastStaging} = await ServerLink.stagingLoad<Settings>(
-            this.$route.params.id));
-      }
-      catch (e) {
-        if (e instanceof ServerError.NoSuchGameError) {
-          this.$router.replace({ name: 'menu' });
-        }
-        else if (e instanceof ServerError.NotLoggedInError) {
-          this.$router.replace({ name: 'menu' });
-        }
-        else {
-          throw e;
-        }
-      }
-      if (isPastStaging) {
-        this.$router.replace({name: 'game', params: {id: this.$route.params.id}});
-      }
-      else {
-        this.host = host;
-        this.ignoreNextSettingsChange();
-        this.settings = settings;
-      }
     },
     playerInGame(id: PbemDbId): boolean {
       for (const p of this.settings!.players) {

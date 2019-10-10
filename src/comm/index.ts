@@ -327,7 +327,11 @@ export class _ServerLink {
         id: this.userCurrent!.localId,
     } as DbUserId;
 
-    const gameDoc = await this._dbUserCurrent.post({
+    // Create a stub document for _id / _rev.
+    const gameDocResp = await this._dbUserCurrent.post({} as any);
+    const gameDoc = {
+      _id: gameDocResp.id,
+      game: gameDocResp.id,
       type: 'game-data',
       host: gameHost,
       createdBy: {
@@ -336,20 +340,24 @@ export class _ServerLink {
       },
       phase: 'staging',
       settings: s,
-    });
+    } as DbGameDoc;
+    (gameDoc as any)._rev = gameDocResp.rev;
     // The current user belongs to the new game.
-    await this._dbUserCurrent.post({
-      type: 'game-response-member',
-      userId: gameHost,
-      gameAddr: {
-        host: gameHost,
-        id: gameDoc.id,
-      },
-      game: gameDoc.id,
-      hostName: this.userCurrent!.remoteName || this.userCurrent!.name,
-      status: 'joined',
-    });
-    return gameDoc.id;
+    await this._dbUserCurrent.bulkDocs([
+      gameDoc as any,
+      {
+        type: 'game-response-member',
+        userId: gameHost,
+        gameAddr: {
+          host: gameHost,
+          id: gameDoc._id!,
+        },
+        game: gameDoc._id!,
+        hostName: this.userCurrent!.remoteName || this.userCurrent!.name,
+        status: 'joined',
+      } as DbUserGameMembershipDoc,
+    ]);
+    return gameDoc._id!;
   }
 
   /** For the current user, load the giving game in 'staging' phase.
