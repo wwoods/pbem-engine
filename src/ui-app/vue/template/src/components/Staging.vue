@@ -150,25 +150,13 @@ export default Vue.extend({
         this.$nextTick(() => { this.inCallback = false; });
       });
     },
-    loadSettings() {
+    async loadSettings() {
       if (this.settingsWatch !== undefined) this.settingsWatch.cancel();
       this.settings = undefined;
       const id = this.$route.params.id;
-      this.settingsWatch = ServerLink.stagingLoad<Settings>(
+      this.settingsWatch = await ServerLink.stagingLoad<Settings>(
         id,
-        async ({error, settings, host, isPastStaging}) => {
-          if (error !== undefined) {
-            if (error instanceof ServerError.NoSuchGameError) {
-              this.$router.replace({ name: 'menu' });
-            }
-            else if (error instanceof ServerError.NotLoggedInError) {
-              this.$router.replace({ name: 'menu' });
-            }
-            else {
-              throw error;
-            }
-          }
-
+        ({isPastStaging, host, settings}) => {
           if (isPastStaging) {
             this.$router.replace({name: 'game', params: {id}});
           }
@@ -177,7 +165,19 @@ export default Vue.extend({
             this.ignoreNextSettingsChange();
             this.settings = settings;
           }
-        });
+        },
+        error => {
+          if (error instanceof ServerError.NoSuchGameError) {
+            this.$router.replace({ name: 'menu' });
+          }
+          else if (error instanceof ServerError.NotLoggedInError) {
+            this.$router.replace({ name: 'menu' });
+          }
+          else {
+            throw error;
+          }
+        },
+      );
       let settings: Settings | undefined, isPastStaging: boolean | undefined,
           host: PbemDbId | undefined;
     },

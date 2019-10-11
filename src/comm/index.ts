@@ -362,21 +362,33 @@ export class _ServerLink {
 
   /** For the current user, load the giving game in 'staging' phase.
    * */
-  async stagingLoad<Settings extends _PbemSettings>(id: string): Promise<{
-      host: PbemDbId,
-      isPastStaging: boolean,
-      settings: Settings,
-  }> {
+  async stagingLoad<Settings extends _PbemSettings>(id: string,
+      callback: (arg: {host: PbemDbId, isPastStaging: boolean, settings: Settings}) => void,
+      callbackError: (error: Error) => void,
+      ): Promise<PouchDB.FindContinuousCancel | undefined> {
     // Ensure that, if possible, we have the requisite game document.
-    await this._checkSynced();
-    const d = await this._dbUserCurrent!.get(id);
-    if (d.type !== 'game-data') throw new ServerError.ServerError(
-        `Id not a game? ${id}`);
-    return {
-      host: d.host as PbemDbId,
-      isPastStaging: d.phase !== 'staging',
-      settings: d.settings as Settings,
-    };
+    try {
+      await this._checkSynced();
+    }
+    catch (e) {
+      callbackError(e);
+      return;
+    }
+    return this._dbUserCurrent!.findContinuous(
+      {_id: {$eq: id}},
+      d => {
+        if (d.type !== 'game-data') throw new ServerError.ServerError(
+            `Id not a game? ${id}`);
+        callback({
+          host: d.host as PbemDbId,
+          isPastStaging: d.phase !== 'staging',
+          settings: d.settings as Settings,
+        });
+      },
+      () => {
+        callbackError(new ServerError.NoSuchGameError(id));
+      },
+    );
   }
 
   /** Add a player to a game in staging. */
@@ -565,6 +577,7 @@ export class _ServerLink {
 
       // When we load a db, compact it, ensure indices exist
       const db = await this._dbUsersLoggedIn.get(userIdLocal)!;
+      db.setMaxListeners(100);
       await db.compact();
       // Index DbUserGameMembershipDoc
       // TODO when https://github.com/pouchdb/pouchdb/issues/7927 is fixed,

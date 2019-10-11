@@ -1,6 +1,7 @@
 import PouchDb from 'pouchdb';
 import PouchDbFind from 'pouchdb-find';
 import PouchDbUpsert from 'pouchdb-upsert';
+import './pouch-extensions';
 PouchDb.plugin(PouchDbFind);
 PouchDb.plugin(PouchDbUpsert);
 PouchDb.plugin(<PouchDB.Plugin><any>{
@@ -13,9 +14,14 @@ PouchDb.plugin(<PouchDB.Plugin><any>{
    *
    * In other words, documents should only be deleted if they are completely
    * handled and require no further action.
+   *
+   * callbackNoMatch() is called when there is no match in the initial search.
    * */
-  findContinuous<DbType>(this: PouchDB.Database<DbType>, selector: any,
-      callback: (arg: DbType) => void): PouchDB.FindContinuousCancel {
+  findContinuous<DbType>(this: PouchDB.Database<DbType>,
+      selector: any,
+      callback: (arg: DbType) => void,
+      callbackNoMatch?: () => void,
+  ): PouchDB.FindContinuousCancel {
     const watcher = this.changes({
       since: 'now',
       live: true,
@@ -32,6 +38,9 @@ PouchDb.plugin(<PouchDB.Plugin><any>{
       const docs = (await this.find({selector})).docs;
       for (const d of docs) {
         callback(d);
+      }
+      if (docs.length === 0 && callbackNoMatch !== undefined) {
+        callbackNoMatch();
       }
     })().catch(e => {
       watcher.emit('error', e);
