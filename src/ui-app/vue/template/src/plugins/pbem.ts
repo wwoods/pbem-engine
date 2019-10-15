@@ -65,6 +65,12 @@ export const _pbemServer = {
   dbIdMatches(id1: PbemDbId, id2: PbemDbId) {
     return ServerLink.dbIdMatches(id1 as DbUserId, id2 as DbUserId);
   },
+  async gameListMembership() {
+    return await ServerLink.gameListMembership();
+  },
+  async gameLoad(id: string) {
+    router.push({name: 'staging', params: {id}});
+  },
   get readyEvent() {
     return ServerLink.readyEvent;
   },

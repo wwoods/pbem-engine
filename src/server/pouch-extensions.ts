@@ -4,7 +4,7 @@ declare namespace PouchDB {
     findContinuous(
       selector: PouchDB.Find.Selector,
       callback: (arg: Content) => void,
-      callbackNoMatch?: () => void,
+      callbackInitial?: (noMatches: boolean) => void,
     ): FindContinuousCancel;
   }
 

@@ -140,6 +140,8 @@ export class _ServerLink {
 
   async init() {
     let loginUser: string | undefined;
+    this._dbLocal = new PouchDb<DbLocal>('pbem-local');
+    this._dbLocal.setMaxListeners(100);
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.users = doc.users || [];
       loginUser = doc.userLoginLatestId;
@@ -274,6 +276,17 @@ export class _ServerLink {
   }
 
 
+  async gameListMembership(): Promise<DbUserGameMembershipDoc[]> {
+    await this._checkSynced();
+    const {docs} = await this._dbUserCurrent!.find({selector: {
+      type: 'game-response-member',
+    }});
+    let d = docs as DbUserGameMembershipDoc[];
+    d = d.filter(a => this.userCurrentMatches(a.userId));
+    return d;
+  }
+
+
   async gameLoad<State extends _PbemState>(id: string): Promise<State> {
     /*
     await this._commSwitch(id);
@@ -385,8 +398,10 @@ export class _ServerLink {
           settings: d.settings as Settings,
         });
       },
-      () => {
-        callbackError(new ServerError.NoSuchGameError(id));
+      noMatch => {
+        if (noMatch) {
+          callbackError(new ServerError.NoSuchGameError(id));
+        }
       },
     );
   }
@@ -483,33 +498,10 @@ export class _ServerLink {
     else {
       // Host can kick anyone; if they kick themselves, the game is dissolved.
       if (this.userCurrentMatches(p!.dbId)) {
-        // Dissolve game; revoke all players' access
-        const dms = (await this._dbUserCurrent!.find({
-          selector: {
-            type: 'game-invitation',
-            game: gameId,
-          },
-        })).docs;
-        for (const dm of dms) {
-          dm._deleted = true;
-        }
-        // Revoke our own membership
-        const hostMember = (await this._dbUserCurrent!.find({
-          selector: {
-            type: 'game-response-member',
-            game: gameId,
-          },
-        })).docs;
-        for (const hm of hostMember) {
-          hm._deleted = true;
-          dms.unshift(hm);
-        }
-        // Also flag the game as ended, and delete it
-        d.phase = 'ending';
-        d._deleted = true;
-        dms.unshift(d as any);
-
-        await this._dbUserCurrent!.bulkDocs(dms);
+        // Dissolve game; rely on the game watcher to do the dissolving.
+        d.ending = true;
+        d.ended = true;
+        await this._dbUserCurrent!.put(d);
         return undefined;
       }
       else {
@@ -524,8 +516,9 @@ export class _ServerLink {
         for (const dm of dms) {
           dm._deleted = true;
         }
-        d.settings.players[slotIndex] = undefined;
-        dms.push(d as any);
+        // Game settings will be overwritten by game daemon.
+        //d.settings.players[slotIndex] = undefined;
+        //dms.push(d as any);
         await this._dbUserCurrent!.bulkDocs(dms);
       }
     }
@@ -546,9 +539,11 @@ export class _ServerLink {
     if (u === undefined) return false;
 
     const i = id as DbUserId;
-    // TODO make this work with all user local IDs; we may be on a different
-    // device.
-    if (i.type === 'local' && u.localId === i.id) return true;
+    if (i.type === 'local') {
+      for (const uid of u.localIdAll) {
+        if (i.id === uid) return true;
+      }
+    }
     if (i.type === 'remote' && u.remoteId === i.id) return true;
     return false;
   }
@@ -633,7 +628,7 @@ export class _ServerLink {
               return;
             }
 
-            if (doc.phase === 'end' || doc._deleted) {
+            if (doc.ended && !doc.ending || doc._deleted) {
               // If a daemon isn't started, it's OK, we don't need one.
               // If one is started, it will catch this change on its own.
               return;
@@ -681,10 +676,19 @@ export class _ServerLink {
                 + `local?`);
             }
             const targDb = this._dbUsersLoggedIn.get(doc.gameAddr.host.id);
-            if (targDb !== undefined) {
-              db.replicate.to(targDb, {
+            if (targDb !== undefined && targDb !== db) {
+              // If target DB is our DB, the game daemon will handle it.
+              const repl = db.replicate.to(targDb, {
                 doc_ids: [doc._id!],
               });
+              if (['invited', 'joined'].indexOf(doc.status) === -1) {
+                repl.on('complete', () => {
+                  // We want to delete the document after it's been replicated
+                  // to the game host.
+                  doc._deleted = true;
+                  db.put(doc);
+                });
+              }
             }
             return;
           }

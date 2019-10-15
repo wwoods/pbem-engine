@@ -66,7 +66,14 @@ export interface DbGameDoc {
   // The current phase of this game; always starts 'staging', 'game' means
   // in progress, and 'end' means that the game is immutable (finished).
   // 'ending' is a transient state meaning that all clients should be
-  phase: 'staging' | 'game' | 'ending' | 'end';
+  phase: 'staging' | 'game' | 'game-over';
+  // Signals that the game requires one final replication to clients, and then
+  // it's over.  Appends '-ended' to the current phase when done.
+  // NOTE: Game daemon still runs until 'ending' set to false.
+  ending?: boolean;
+  // Signals that the game is completely over.  Will be set before ending is
+  // unset.
+  ended?: boolean;
   // During 'staging', settings may be modified.  After that point, it is a
   // fixed object.
   settings: _PbemSettings;

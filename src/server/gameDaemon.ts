@@ -23,6 +23,8 @@ export class ServerGameDaemon {
   get id() { return this._id; }
 
   _active: boolean = false;
+  _activeInitialized?: Promise<void>;
+  _activeInitialized_cb?: [any, any];
   _db: PouchDB.Database<DbGame>;
   _dbResolver: (userId: DbUserId) => PouchDB.Database<DbUser> | undefined;
   _debug: debug.Debugger;
@@ -33,6 +35,10 @@ export class ServerGameDaemon {
   _replications = new Map<string, [PouchDB.FindContinuousCancel, PouchDB.FindContinuousCancel]>();
   _watchers: PouchDB.FindContinuousCancel[] = [];
 
+  /** Note that `_dbResolver` may be called multiple times with the same user
+   * database, and should return the same connection (or a pooled version)
+   * wherever possible.
+   * */
   constructor(
     db: PouchDB.Database<DbGame>,
     doc: DbGameDoc,
@@ -77,6 +83,9 @@ export class ServerGameDaemon {
   activate() {
     if (this._active) return;
     this._active = true;
+    this._activeInitialized = new Promise((resolve, reject) => {
+      this._activeInitialized_cb = [resolve, reject];
+    });
 
     this._debug('activated');
 
@@ -85,9 +94,21 @@ export class ServerGameDaemon {
       await this._handleSettingsCheck();
 
       let w: PouchDB.FindContinuousCancel;
-      w = this._db.findContinuous({game: this._id}, doc => {
-        this._handleGameDoc(doc);
-      });
+      w = this._db.findContinuous(
+        {game: this._id},
+        doc => {
+          this._handleGameDoc(doc);
+        },
+        noMatch => {
+          if (!noMatch) {
+            this._activeInitialized_cb![0]();
+          }
+          else {
+            this._activeInitialized_cb![1](new ServerError.ServerError(
+                `No game ${this._id}?`));
+          }
+        },
+      );
       this._watchers.push(w);
 
     })().catch((e) => {
@@ -124,13 +145,55 @@ export class ServerGameDaemon {
     (async () => {
       if (doc.type === 'game-data') {
         // Game data changed
-        if (doc.phase === 'end' || doc._deleted) {
+        if (doc.ended && !doc.ending || doc._deleted) {
           this.deactivate();
           return;
         }
 
-        if (doc.phase === 'ending') {
-          // TODO - replicate once to everyone, change state to 'end'.
+        if (doc.ending) {
+          // replicate once to everyone, set ending to false.
+          if (!doc.ended) {
+            this._debug(`ended not set, but ending was?`);
+          }
+
+          let replications: number = 0;
+          const cb = () => {
+            replications -= 1;
+            if (replications === 0) {
+              (async () => {
+                // Unsetting 'ending' will deactivate ourselves and terminate
+                // all replications.
+                doc.ending = false;
+                const bulk: any[] = [doc];
+                if (doc.phase === 'staging') {
+                  doc._deleted = true;
+
+                  const {docs} = await this._db.find({selector: {
+                    game: this._id}});
+                  for (const d of docs) {
+                    d._deleted = true;
+                    bulk.push(d);
+                  }
+                }
+                await this._db.bulkDocs(bulk);
+              })().catch(this._debug);
+            }
+          };
+          await this._activeInitialized;
+          // All replications should have been set up in the initial
+          // replication.
+          for (const u of doc.settings.players) {
+            if (u !== undefined &&
+                u.dbId !== undefined && u.status === 'joined') {
+              replications += 1;
+              const userDb = await this._dbResolver(u.dbId);
+              if (userDb === undefined) return;
+
+              const r = this._db.replicate.to(userDb,
+                {selector: {_id: {$eq: this._id}}});
+              r.on('complete', cb);
+            }
+          }
         }
       }
       else if (doc.type === 'game-invitation') {
@@ -171,6 +234,8 @@ export class ServerGameDaemon {
    * game-invitation documents and validate that 'game-data' document has
    * players in slots.  Changes 'game-data' and invitations to be in parity,
    * with preference for respecting invitations.
+   *
+   * TODO: should NOT change settings if game not in 'staging' state.
    * */
   async _handleSettingsCheck() {
     const settings = await this._db.get(this._id) as DbGameDoc;

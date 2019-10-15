@@ -10,6 +10,8 @@
       ul
         li(v-for="user of users" @click="userLogin(user.localId)" :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}") {{user.name}}
     .pbem-games
+      ul
+        li(v-for="game of games" :gameId="game.game" @click="gameLoad(game.game)") {{gameName(game)}}
       span TODO: active games.
     .pbem-menu(v-if="$pbemServer.userLocalId")
       input(type="button" @click="createLocal()" value="Create local")
@@ -31,17 +33,20 @@ import PouchDb from 'pbem-engine/lib/server/pouch';
 
 import {Settings} from '@/game';
 
-import {ServerLink} from 'pbem-engine/lib/comm';
 import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
+import {DbUserGameMembershipDoc} from 'pbem-engine/lib/server/db';
 
 export default Vue.extend({
   data() {
     return {
       username: 'Guest1',
+      games: [] as Array<DbUserGameMembershipDoc>,
       users: [] as Array<DbLocalUserDefinition>,
     };
   },
   async mounted() {
+    await this.$pbemServer.readyEvent;
+    await this.gameRefresh();
     await this.userRefresh();
   },
   methods: {
@@ -52,6 +57,43 @@ export default Vue.extend({
         // Can write settings here as desired needed, for e.g. a game campaign.
       });
     },
+    async gameLoad(id: string) {
+      await this.$pbemServer.gameLoad(id);
+    },
+    gameName(game: DbUserGameMembershipDoc) {
+      const names = [
+        'Alpha',
+        'Whiskey',
+        'Tango',
+        'Delta',
+        'Ela',
+        'Bella',
+        'Niner',
+        'Dubious',
+        'Hellacious',
+        'Oak',
+        'Mountain',
+        'Berry',
+        'Resort',
+        'Battlefield',
+        'Yogurt',
+        'Tapioca',
+      ];
+      const name = [];
+      name.push(game.hostName);
+      for (let i = 0, m = 3; i < m; i++) {
+        name.push(names[parseInt(game.game[i], 16)]);
+      }
+      return name.join(' ');
+    },
+    async gameRefresh() {
+      try {
+        this.games = await this.$pbemServer.gameListMembership();
+      }
+      catch (e) {
+        this.games = [];
+      }
+    },
     async userCreate(username: string) {
       await this.$pbemServer.userCreate(username);
       await this.userRefresh();
@@ -60,6 +102,7 @@ export default Vue.extend({
       // TODO second argument would be remote DB.
       await this.$pbemServer.userLogin(userLocalId);
       await this.userRefresh();
+      await this.gameRefresh();
     },
     async userRefresh() {
       this.users = await this.$pbemServer.userList();
