@@ -11,6 +11,9 @@ import {pbemVueDefaultsPlugin} from './components/defaults';
 // Import user components
 import {pbemVuePlugin} from '@/ui';
 
+declare var localStorage: any;
+localStorage.debug = 'pbem*';
+
 window.addEventListener('beforeinstallprompt', function(e: any) {
   // As per https://love2dev.com/blog/beforeinstallprompt/, could
   // show a custom prompt.

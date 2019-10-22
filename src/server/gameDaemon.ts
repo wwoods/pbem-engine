@@ -4,10 +4,11 @@ import {EventEmitter} from 'tsee';
 
 import {ServerError} from './common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
-  DbUser, DbUserId} from './db';
+  DbUser, DbUserId, DbUserActionDoc} from './db';
+import {GamePlayerWatcher} from './gamePlayerWatcher';
 import PouchDb from './pouch';
 
-import {PbemPlayer} from '../game';
+import {PbemPlayer, _PbemState, _PbemAction, PbemAction} from '../game';
 
 /** Runs a game, from the DB point of view.
  *
@@ -33,7 +34,8 @@ export class ServerGameDaemon {
   _localUser?: {id: string, activeId: string};
   // Foreign DB: [to, from].
   _replications = new Map<string, [PouchDB.FindContinuousCancel, PouchDB.FindContinuousCancel]>();
-  _watchers: PouchDB.FindContinuousCancel[] = [];
+  _watcher?: GamePlayerWatcher;
+  _watcherFind?: PouchDB.FindContinuousCancel;
 
   /** Note that `_dbResolver` may be called multiple times with the same user
    * database, and should return the same connection (or a pooled version)
@@ -93,23 +95,25 @@ export class ServerGameDaemon {
 
       await this._handleSettingsCheck();
 
-      let w: PouchDB.FindContinuousCancel;
-      w = this._db.findContinuous(
+      this._watcher = new GamePlayerWatcher(this._db, this._id, -1, {
+        noInit: true});
+      this._watcherFind = this._db.findContinuous(
         {game: this._id},
         doc => {
           this._handleGameDoc(doc);
+          this._watcher!.triggerLoadOrChange(doc);
         },
         noMatch => {
           if (!noMatch) {
             this._activeInitialized_cb![0]();
           }
           else {
-            this._activeInitialized_cb![1](new ServerError.ServerError(
-                `No game ${this._id}?`));
+            this.deactivate();
+            this._activeInitialized_cb![1](new ServerError.NoSuchGameError(
+                this._id));
           }
         },
       );
-      this._watchers.push(w);
 
     })().catch((e) => {
       this._debug(e.toString());
@@ -123,8 +127,15 @@ export class ServerGameDaemon {
     this._debug('deactivating');
     (async () => {
 
-      for (const w of this._watchers) w.cancel();
-      this._watchers = [];
+      if (this._watcher !== undefined) {
+        this._watcher.cancel();
+        this._watcher = undefined;
+      }
+
+      if (this._watcherFind !== undefined) {
+        this._watcherFind.cancel();
+        this._watcherFind = undefined;
+      }
 
       for (const r of this._replications.values()) {
         r[0].cancel();
@@ -194,6 +205,34 @@ export class ServerGameDaemon {
               r.on('complete', cb);
             }
           }
+        }
+        else if (doc.phase === 'game') {
+          const {docs} = await this._db.find({selector: {game: this._id,
+            type: 'game-data-state'}});
+          if (docs.length !== 0) {
+            return;
+          }
+
+          // Create sentinel action.
+          const actionPrev: DbUserActionDoc = {
+            type: 'game-data-action',
+            game: this._id,
+            action: _PbemAction.create({
+              type: 'PbemAction.RoundStart',
+              game: {},
+            } as PbemAction.Types.RoundStart),
+          };
+          const actionPrevResponse = await this._db.post(actionPrev);
+
+          // TODO pass this state to the watcher.
+          const state = await _PbemState.create(doc.settings);
+          await this._db.post({
+            type: 'game-data-state',
+            game: this._id,
+            round: 0,
+            state: this._saveState(state),
+            actionPrev: actionPrevResponse.id,
+          });
         }
       }
       else if (doc.type === 'game-invitation') {
@@ -542,5 +581,12 @@ export class ServerGameDaemon {
         await this._db.bulkDocs(docs);
       }
     }
+  }
+
+  _saveState(state: any) {
+    const s = Object.assign({}, state);
+    // Plugins do not serialize
+    delete s.plugins;
+    return s;
   }
 };

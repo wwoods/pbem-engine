@@ -266,7 +266,11 @@ export namespace _PbemState {
 export interface PbemPlugin {
   // State passed in constructor.
   //new (state: PbemState<GameSettings, GameState, Plugins>);
+
+  /** init() called on game creation.  Overwrites state values. */
   init: {(): void};
+
+  /** load() called on game load.  Caches needed local information. */
   load: {(): void};
 }
 

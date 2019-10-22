@@ -1,18 +1,17 @@
 <template lang="pug">
   .pbem-game
-    div(v-if="state === undefined") Loading...
-    pbem-game-view(v-if="state !== undefined")
+    div(v-if="pbem === undefined") Loading...
+    pbem-game-view(v-if="pbem !== undefined")
 </template>
 
 <script lang="ts">
 import Vue from 'vue';
-import {ServerError, ServerLink} from 'pbem-engine/lib/comm';
-import {State} from '@/game';
+import {ServerError} from 'pbem-engine/lib/comm';
+import {Action, Settings, State} from '@/game';
 
 export default Vue.extend({
   data: function() {
     return {
-      state: undefined as undefined | State,
       pbem: undefined as undefined | any,
     };
   },
@@ -22,29 +21,34 @@ export default Vue.extend({
     },
   },
   async mounted() {
+    await this.$pbemServer.readyEvent;
     await this.loadGame();
+  },
+  beforeDestroy() {
+    this.$pbemServer.gameUnload();
   },
   methods: {
     async loadGame() {
+      const id = this.$route.params.id;
       try {
-        this.state = await ServerLink.gameLoad<any>(this.$route.params.id);
-        // So that Vue is aware of the $pbem object,  bind it here to make
-        // it reactive.
-        this.pbem = this.$pbem;
+        await this.$pbemServer.gameLoad(id);
       }
       catch (e) {
-        const q = new ServerError.NoSuchGameError('hi');
-        if (e instanceof ServerError.NoSuchGameError) {
+        if (e instanceof ServerError.NoSuchGameError
+            || e instanceof ServerError.NotLoggedInError) {
           this.$router.replace({ name: 'menu' });
         }
         else if (e instanceof ServerError.GameIsStagingError) {
-          this.$router.replace({ name: 'staging', params: {
-              id: this.$route.params.id } });
+          this.$router.replace({name: 'staging', params: {id}});
         }
         else {
-          throw e;
+          console.log(e);
         }
       }
+
+      // So that Vue is aware of the $pbem object,  bind it here to make
+      // it reactive.
+      this.pbem = this.$pbem;
     },
   },
 });

@@ -57,8 +57,8 @@ export default Vue.extend({
         // Can write settings here as desired needed, for e.g. a game campaign.
       });
     },
-    async gameLoad(id: string) {
-      await this.$pbemServer.gameLoad(id);
+    gameLoad(id: string) {
+      this.$router.push({name: 'game', params: {id}});
     },
     gameName(game: DbUserGameMembershipDoc) {
       const names = [

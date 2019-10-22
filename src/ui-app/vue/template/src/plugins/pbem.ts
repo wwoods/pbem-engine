@@ -69,7 +69,10 @@ export const _pbemServer = {
     return await ServerLink.gameListMembership();
   },
   async gameLoad(id: string) {
-    router.push({name: 'staging', params: {id}});
+    await ServerLink.gameLoad(id);
+  },
+  gameUnload() {
+    ServerLink.gameUnload();
   },
   get readyEvent() {
     return ServerLink.readyEvent;
@@ -88,4 +91,3 @@ export const _pbemServer = {
     return await ServerLink.userLogin(userId);
   },
 };
-

@@ -87,6 +87,8 @@ export interface DbGameStateDoc {
   type: 'game-data-state';
   game: string;
   round: number;
+  // Action preceding this game state.
+  actionPrev: string;
   state: any;
 }
 
@@ -171,5 +173,6 @@ export interface DbUserActionDoc {
   type: 'game-data-action';
   game: string;
   action: any;
+  next?: string;
 }
 

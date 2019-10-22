@@ -12,106 +12,29 @@ import assert from 'assert';
 
 import PouchDb from '../server/pouch';
 
-import {_PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer,
+import {_GameHooks, _PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer,
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
 import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
   DbUserId, DbUserIdsDoc} from '../server/db';
 import {ServerGameDaemon} from '../server/gameDaemon';
+import {GamePlayerWatcher} from '../server/gamePlayerWatcher';
+
 import {DbLocal, DbLocalUserDefinition, DbLocalUsersDoc, DbUser} from './db';
 
-/** Note that for UI reactivity, all players share the same "PlayerView" object.
- * Only the properties get changed.
- * */
-export class PlayerView<State extends _PbemState, Action extends _PbemAction> implements PbemPlayerView<State, Action> {
-  // This class is exposed to end-user code, so "playerId" might be more
-  // intuitive than just "id".
-  playerId: number;
-  state: State;
-  uiEvents: Array<_PbemEvent>;
-  // TODO: keep whether or not there is pending activity cached for the UI.
-  _pending: boolean = false;
-
-  constructor() {
-    this.playerId = -1;
-    this.state = ({} as any) as State;
-    this.uiEvents = [];
-  }
-
-  get hasPending(): boolean {
-    return this._pending;
-  }
-
-  getRoundPlayerActions() {
-    const ra = PbemState.getRoundActions(this.state);
-    const a = ra.filter(x => !x.actionGrouped && x.playerOrigin === this.playerId);
-    return a;
-  }
-
-  async action(action: Action) {
-    //return this.actionMulti([type, ...args]);
-    try {
-      this.userActionErrorClear();
-
-      const act = _PbemAction.create(action);
-      act.playerOrigin = this.playerId;
-      await ServerLink.gameActions([act]);
-    }
-    catch (e) {
-      this.uiEvent('userError', PbemEvent.UserActionError, e);
-    }
-  }
-
-  uiEvent<E extends PbemEvent._Type<T>, T>(eventId: string, eventType: E,
-    game: T) {
-    if (eventType.name === 'PbemEvent.UserActionError') {
-      this.userActionErrorClear();
-    }
-    const event = PbemEvent.create(eventId, eventType, game);
-    PbemEvent.queueRemoveIfExists(this.uiEvents, event.eventId);
-    // Wait to enqueue the event until after any previously registered events
-    // have been cleared.
-    ServerLink._$nextTick!(() => {
-      ServerLink._$nextTick!(() => {
-        PbemEvent.queueAdd(this.uiEvents, event);
-      });
-    });
-  }
-
-  async undo(act: PbemActionWithDetails<_PbemAction>) {
-    try {
-      this.userActionErrorClear();
-
-      await ServerLink.gameUndo(act);
-    }
-    catch (e) {
-      this.uiEvent('userError', PbemEvent.UserActionError, e);
-    }
-  }
-
-  /** Clear previous user action errors, since they did something else. */
-  userActionErrorClear() {
-    for (let i = this.uiEvents.length - 1; i > -1; --i) {
-      if (this.uiEvents[i].type === 'PbemEvent.UserActionError') {
-        this.uiEvents.splice(i, 1);
-      }
-    }
-  }
-}
-
-
-/** Class responsible for running local version of game.  Handles
+/** Class responsible for handling DB communications for users.  Handles
  * communications with user database, and switching between users.  Primarily
  * handles local users, but sets up synchronization when needed.
  * */
 export class _ServerLink {
-  _localPlayerActive: number = -1;
   localPlayerActive(newPlayer?: number) {
     if (newPlayer !== undefined) {
       this._localPlayerActive = newPlayer;
-      this.localPlayerView.playerId = this.localPlayers[newPlayer].index;
-      this.localPlayerView.state = this._state!;
+      const p = this.localPlayers[newPlayer];
+      const pg = this._localPlayerWatchers[newPlayer];
+      this.localPlayerView.playerId = p.index;
+      this.localPlayerView.state = pg.state;
       this.localPlayerView.uiEvents = [];
     }
     return this._localPlayerActive;
@@ -122,9 +45,13 @@ export class _ServerLink {
     this._readyEvent = [resolve, reject];
   });
 
+
+  // _local here refers to the locally-loaded game.
+  _localGameId?: string;
+  _localPlayerActive: number = -1;
+  _localPlayerWatchers: Array<GamePlayerWatcher> = [];
+
   _readyEvent!: [any, any];
-  _settings?: _PbemSettings;
-  _state?: _PbemState;
   _dbLocal = new PouchDb<DbLocal>('pbem-local');
   _dbUserCurrent?: PouchDB.Database<DbUser>;
   _userCurrent?: DbLocalUserDefinition;
@@ -287,17 +214,61 @@ export class _ServerLink {
   }
 
 
-  async gameLoad<State extends _PbemState>(id: string): Promise<State> {
-    /*
-    await this._commSwitch(id);
-    this._settings = undefined;
-    this._state = await this._comm!.gameLoad<State>();
-    // TODO smarter player management
-    this.localPlayers = this._state.settings.players.filter(
-        x => x !== undefined) as PbemPlayer[];
-    this.localPlayerActive(0);*/
-    throw new ServerError.ServerError('TODO');
-    return this._state! as State;
+  async gameLoad<Settings extends _PbemSettings, State extends _PbemState,
+      Action extends _PbemAction>(id: string): Promise<void> {
+    if (this._localPlayerActive !== -1) {
+      await this.gameUnload();
+    }
+    await this._checkSynced();
+
+    const docs = (await this._dbUserCurrent!.find({selector: {_id: {$eq: id}}})).docs as DbGameDoc[];
+    if (docs.length === 0) {
+      throw new ServerError.NoSuchGameError(id);
+    }
+    const game = docs[0];
+    
+    if (game.phase === 'staging') {
+      throw new ServerError.GameIsStagingError(id);
+    }
+
+    this._localGameId = id;
+    this._localPlayerActive = 0;
+    this._localPlayerWatchers = [];
+    this.localPlayers = [];
+    // Iterating in game order ensures first player will move first.
+    for (let i = 0, m = game.settings.players.length; i < m; i++) {
+      const p = game.settings.players[i];
+      if (p === undefined) continue;
+      if (p.dbId === undefined) continue;
+
+      for (const [u, db] of this._dbUsersLoggedIn.entries()) {
+        const uId: DbUserId = {type: 'local', id: u};
+        if (this.dbIdMatches(uId, p.dbId as DbUserId)) {
+          this.localPlayers.push(p);
+          this._localPlayerWatchers.push(new GamePlayerWatcher(
+              db as PouchDB.Database<DbGame>, id, i));
+        }
+      }
+    }
+
+    // Before returning, ensure all watchers are initialized
+    const promises: Promise<any>[] = [];
+    for (const w of this._localPlayerWatchers) {
+      promises.push(w.init());
+    }
+    await Promise.all(promises);
+
+    // Switch to first player
+    this.localPlayerActive(0);
+  }
+
+  gameUnload() {
+    this._localGameId = undefined;
+    this._localPlayerActive = -1;
+    for (const u of this._localPlayerWatchers) {
+      u.cancel();
+    }
+    this._localPlayerWatchers = [];
   }
 
   async gameUndo(act: PbemActionWithDetails<_PbemAction>) {
@@ -309,6 +280,14 @@ export class _ServerLink {
 
     await comm.gameUndo(act);*/
     throw new ServerError.ServerError('TODO');
+  }
+
+  getActivePlayerView<State extends _PbemState, Action extends _PbemAction>(nextTick: any): PlayerView<State, Action> | undefined {
+    if (this.localPlayerActive() < 0) {
+      return undefined;
+    }
+    this._$nextTick = nextTick;
+    return this.localPlayerView as PlayerView<State, Action>;
   }
 
   /** Create the settings for a local game, in staging state.
@@ -528,10 +507,24 @@ export class _ServerLink {
   /** Take a game in staging and start it. */
   async stagingStartGame<Settings extends _PbemSettings>(gameId: string, settings: Settings): Promise<void> {
     // Ensure fully replicated first?  Or only valid for local games?
-    /*assert(gameId === settings.gameId);
-    await this._commSwitch(gameId);
-    return await this._comm!.stagingStartGame<Settings>(settings);*/
-    throw new ServerError.ServerError('TODO');
+    const {docs} = await this._dbUserCurrent!.find({selector: {_id: {$eq: gameId}}});
+    if (docs.length === 0) {
+      throw new ServerError.NoSuchGameError(gameId);
+    }
+
+    let ddocs = (docs as DbGameDoc[]).filter(d => d.phase === 'staging');
+    for (const d of ddocs) {
+      d.phase = 'game';
+      // Validate settings prior to writing the phase change.
+      _PbemSettings.Hooks.validate!(d.settings);
+      const hooks = _GameHooks.Settings!;
+      if (hooks.validate !== undefined) {
+        hooks.validate(d.settings);
+      }
+    }
+    // It's the game daemon that's responsible for generating the initial
+    // state; simply moving the game to 'game' phase should be enough.
+    await this._dbUserCurrent!.bulkDocs(ddocs);
   }
 
   userCurrentMatches(id: DbUserId) {
@@ -546,14 +539,6 @@ export class _ServerLink {
     }
     if (i.type === 'remote' && u.remoteId === i.id) return true;
     return false;
-  }
-
-  getActivePlayerView<State extends _PbemState, Action extends _PbemAction>(nextTick: any): PlayerView<State, Action> | undefined {
-    if (this.localPlayerActive() < 0) {
-      return undefined;
-    }
-    this._$nextTick = nextTick;
-    return this.localPlayerView as PlayerView<State, Action>;
   }
 
   /** Block until the local user database is synchronized with the remote user
@@ -579,6 +564,8 @@ export class _ServerLink {
       // this index should be ['type', 'game'].
       await db.createIndex({index: {fields: ['type']}});
       await db.createIndex({index: {fields: ['game']}});
+      // Index for traversing actions backward
+      await db.createIndex({index: {fields: ['next']}});
 
       // Local synchronization code.  More fancy, since it requires watching
       // changes.
@@ -710,6 +697,87 @@ export class _ServerLink {
       s.players.length = s.playersValid[0];
     }
     return s;
+  }
+}
+
+
+
+/** Note that for UI reactivity, all players share the same "PlayerView" object.
+ * Only the properties get changed.
+ * */
+export class PlayerView<State extends _PbemState, Action extends _PbemAction> implements PbemPlayerView<State, Action> {
+  // This class is exposed to end-user code, so "playerId" might be more
+  // intuitive than just "id".
+  playerId: number;
+  state: State;
+  uiEvents: Array<_PbemEvent>;
+  // TODO: keep whether or not there is pending activity cached for the UI.
+  _pending: boolean = false;
+
+  constructor() {
+    this.playerId = -1;
+    this.state = ({} as any) as State;
+    this.uiEvents = [];
+  }
+
+  get hasPending(): boolean {
+    return this._pending;
+  }
+
+  getRoundPlayerActions() {
+    const ra = PbemState.getRoundActions(this.state);
+    const a = ra.filter(x => !x.actionGrouped && x.playerOrigin === this.playerId);
+    return a;
+  }
+
+  async action(action: Action) {
+    //return this.actionMulti([type, ...args]);
+    try {
+      this.userActionErrorClear();
+
+      const act = _PbemAction.create(action);
+      act.playerOrigin = this.playerId;
+      await ServerLink.gameActions([act]);
+    }
+    catch (e) {
+      this.uiEvent('userError', PbemEvent.UserActionError, e);
+    }
+  }
+
+  uiEvent<E extends PbemEvent._Type<T>, T>(eventId: string, eventType: E,
+    game: T) {
+    if (eventType.name === 'PbemEvent.UserActionError') {
+      this.userActionErrorClear();
+    }
+    const event = PbemEvent.create(eventId, eventType, game);
+    PbemEvent.queueRemoveIfExists(this.uiEvents, event.eventId);
+    // Wait to enqueue the event until after any previously registered events
+    // have been cleared.
+    ServerLink._$nextTick!(() => {
+      ServerLink._$nextTick!(() => {
+        PbemEvent.queueAdd(this.uiEvents, event);
+      });
+    });
+  }
+
+  async undo(act: PbemActionWithDetails<_PbemAction>) {
+    try {
+      this.userActionErrorClear();
+
+      await ServerLink.gameUndo(act);
+    }
+    catch (e) {
+      this.uiEvent('userError', PbemEvent.UserActionError, e);
+    }
+  }
+
+  /** Clear previous user action errors, since they did something else. */
+  userActionErrorClear() {
+    for (let i = this.uiEvents.length - 1; i > -1; --i) {
+      if (this.uiEvents[i].type === 'PbemEvent.UserActionError') {
+        this.uiEvents.splice(i, 1);
+      }
+    }
   }
 }
 

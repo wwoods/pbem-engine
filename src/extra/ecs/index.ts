@@ -61,16 +61,17 @@ export class PbemEcs<Entity extends PbemEntity> implements PbemPlugin {
   }
 
   init() {
-    this.state.game.ecs = this._ecs = {};
+    this.state.game.ecs = {};
     this.state.game.ecsLastId = 0;
-    this._ecsUi = {
-        ecs: {},
-        ecsLastId: 0,
-    };
     this.load();
   }
 
   load() {
+    this._ecs = this.state.game.ecs;
+    this._ecsUi = {
+        ecs: {},
+        ecsLastId: 0,
+    };
   }
 
   pluginAdd(plugin: PbemEcsPlugin<Entity>) {

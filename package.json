@@ -5,7 +5,7 @@
   "main": "./lib/index.js",
   "files": [
     "./lib/**/*",
-    "./src/ui-app/**/template/**/*"
+    "./src/ui-app/*/template/**/*"
   ],
   "bin": {
     "pbem": "./lib/bin/pbem.js"
