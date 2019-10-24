@@ -42,7 +42,7 @@ export default Vue.extend({
           this.$router.replace({name: 'staging', params: {id}});
         }
         else {
-          console.log(e);
+          throw e;
         }
       }
 

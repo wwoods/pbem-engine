@@ -95,13 +95,12 @@ export class ServerGameDaemon {
 
       await this._handleSettingsCheck();
 
-      this._watcher = new GamePlayerWatcher(this._db, this._id, -1, {
-        noInit: true});
       this._watcherFind = this._db.findContinuous(
         {game: this._id},
         doc => {
           this._handleGameDoc(doc);
-          this._watcher!.triggerLoadOrChange(doc);
+          const w = this._watcher;
+          if (w !== undefined) w.triggerLoadOrChange(doc);
         },
         noMatch => {
           if (!noMatch) {
@@ -116,7 +115,7 @@ export class ServerGameDaemon {
       );
 
     })().catch((e) => {
-      this._debug(e.toString());
+      this._debug(e);
       this.deactivate();
     });
   }
@@ -146,7 +145,7 @@ export class ServerGameDaemon {
       this._active = false;
 
     })().catch(e => {
-      this._debug(e.toString());
+      this._debug(e);
     });
   }
 
@@ -210,19 +209,22 @@ export class ServerGameDaemon {
           const {docs} = await this._db.find({selector: {game: this._id,
             type: 'game-data-state'}});
           if (docs.length !== 0) {
+            await this._watcherEnsureRunning();
             return;
           }
 
           // Create sentinel action.
-          const actionPrev: DbUserActionDoc = {
+          const actionFirst: DbUserActionDoc = {
             type: 'game-data-action',
             game: this._id,
-            action: _PbemAction.create({
-              type: 'PbemAction.RoundStart',
-              game: {},
-            } as PbemAction.Types.RoundStart),
+            actions: [
+              _PbemAction.create({
+                type: 'PbemAction.RoundStart',
+                game: {},
+              } as PbemAction.Types.RoundStart),
+            ],
           };
-          const actionPrevResponse = await this._db.post(actionPrev);
+          const actionFirstResponse = await this._db.post(actionFirst);
 
           // TODO pass this state to the watcher.
           const state = await _PbemState.create(doc.settings);
@@ -231,8 +233,9 @@ export class ServerGameDaemon {
             game: this._id,
             round: 0,
             state: this._saveState(state),
-            actionPrev: actionPrevResponse.id,
+            actionPrev: actionFirstResponse.id,
           });
+          await this._watcherEnsureRunning();
         }
       }
       else if (doc.type === 'game-invitation') {
@@ -588,5 +591,16 @@ export class ServerGameDaemon {
     // Plugins do not serialize
     delete s.plugins;
     return s;
+  }
+
+
+  /** Watcher shouldn't run until game is in 'game' phase and there is a game
+   * state.  So, there are a few places we might pick that up.
+   * */
+  async _watcherEnsureRunning() {
+    if (this._watcher !== undefined) return;
+    this._watcher = new GamePlayerWatcher(this._db, this._id, -1, {
+      noContinuous: true});
+    await this._watcher!.init();
   }
 };

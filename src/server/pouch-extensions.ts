@@ -6,6 +6,8 @@ declare namespace PouchDB {
       callback: (arg: Content) => void,
       callbackInitial?: (noMatches: boolean) => void,
     ): FindContinuousCancel;
+
+    getUuid(): string;
   }
 
   export interface FindContinuousCancel {

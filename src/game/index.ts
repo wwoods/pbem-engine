@@ -241,7 +241,7 @@ export namespace _PbemState {
   export const Hooks: PbemState.Hooks<PbemState<any, any, any>, _PbemAction> = {
     // Just to keep typescript happy.
     init(state) {},
-    triggerCheck(pbem, sinceActionIndex) {
+    triggerCheck(pbem) {
       let allDone = true;
       const p = pbem.state.settings.players;
       for (let i = 0, m = p.length; i < m; i++) {
@@ -317,7 +317,7 @@ export namespace PbemState {
     /** Convert a loaded game, if necessary. */
     load?: {(state: State): void};
     /** Check for triggers after any action. */
-    triggerCheck?: {(pbem: PbemServerView<State, Action>, sinceActionIndex: number): void};
+    triggerCheck?: {(pbem: PbemServerView<State, Action>): void};
     /** Do something at end of round (actions added are added before the
      * PbemAction.NewRound action). */
     roundEnd?: {(pbem: PbemServerView<State, Action>): void};
@@ -340,7 +340,6 @@ export namespace PbemState {
 
 export interface PbemActionDetails {
   playerOrigin: number;
-  actionId: string;
   actionGrouped: boolean;
 }
 export interface _PbemAction {
@@ -350,7 +349,6 @@ export interface _PbemAction {
 export type PbemActionWithDetails<Action extends _PbemAction> = PbemActionDetails & Action;
 
 export namespace _PbemAction {
-  let _actionId: number = 0;
   export function create(action: Readonly<_PbemAction>): PbemActionWithDetails<_PbemAction> {
     if (action.type === undefined) {
       // Note that action.game may be undefined
@@ -359,10 +357,8 @@ export namespace _PbemAction {
 
     const a: PbemActionWithDetails<_PbemAction> = Object.assign({
       playerOrigin: -1,
-      actionId: `l${_actionId}`,
       actionGrouped: false,
     }, action);
-    _actionId++;
     return a;
   }
   export function resolve(type: string): PbemAction.Hooks<_PbemState, _PbemAction> {

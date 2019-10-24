@@ -36,6 +36,7 @@ export class _ServerLink {
       this.localPlayerView.playerId = p.index;
       this.localPlayerView.state = pg.state;
       this.localPlayerView.uiEvents = [];
+      this.localPlayerView._watcher = pg;
     }
     return this._localPlayerActive;
   }
@@ -178,30 +179,6 @@ export class _ServerLink {
     return d.users;
   }
 
-  /** Invoke the specified actions on the remote server. */
-  async gameActions(action: PbemActionWithDetails<_PbemAction>[]) {
-    /*
-    const comm = this._comm;
-    if (comm === undefined) {
-      throw new ServerError.ServerError('Bad comm');
-    }
-    const s = this._state!;
-    const before = s.actions.length;
-
-    assert(comm.gameId !== undefined);
-    await comm.gameActions(action);
-
-    const roundStarted = s.actions.slice(before).filter((x) => x.type === 'PbemAction.RoundStart').length > 0;
-    if (roundStarted) {
-      this.localPlayerActive(0);
-    }
-    else if (s.turnEnded[this.localPlayerView.playerId]) {
-      this.localPlayerActive(
-          (this.localPlayerActive() + 1) % this.localPlayers.length);
-    }*/
-    throw new ServerError.ServerError('TODO');
-  }
-
 
   async gameListMembership(): Promise<DbUserGameMembershipDoc[]> {
     await this._checkSynced();
@@ -217,7 +194,7 @@ export class _ServerLink {
   async gameLoad<Settings extends _PbemSettings, State extends _PbemState,
       Action extends _PbemAction>(id: string): Promise<void> {
     if (this._localPlayerActive !== -1) {
-      await this.gameUnload();
+      this.gameUnload();
     }
     await this._checkSynced();
 
@@ -713,6 +690,7 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
   uiEvents: Array<_PbemEvent>;
   // TODO: keep whether or not there is pending activity cached for the UI.
   _pending: boolean = false;
+  _watcher!: GamePlayerWatcher;
 
   constructor() {
     this.playerId = -1;
@@ -734,10 +712,26 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
     //return this.actionMulti([type, ...args]);
     try {
       this.userActionErrorClear();
-
-      const act = _PbemAction.create(action);
-      act.playerOrigin = this.playerId;
-      await ServerLink.gameActions([act]);
+      return await this._watcher.action(action);    
+      /*
+      const comm = this._comm;
+      if (comm === undefined) {
+        throw new ServerError.ServerError('Bad comm');
+      }
+      const s = this._state!;
+      const before = s.actions.length;
+  
+      assert(comm.gameId !== undefined);
+      await comm.gameActions(action);
+  
+      const roundStarted = s.actions.slice(before).filter((x) => x.type === 'PbemAction.RoundStart').length > 0;
+      if (roundStarted) {
+        this.localPlayerActive(0);
+      }
+      else if (s.turnEnded[this.localPlayerView.playerId]) {
+        this.localPlayerActive(
+            (this.localPlayerActive() + 1) % this.localPlayers.length);
+      }*/
     }
     catch (e) {
       this.uiEvent('userError', PbemEvent.UserActionError, e);

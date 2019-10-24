@@ -163,6 +163,8 @@ export interface DbUserActionRequestDoc {
   type: 'game-response-action';
   game: string;  // Refer to GameMembershipDoc for full address.
   action: any;
+  // Previously requested action
+  prev: string;
 }
 
 /** Indicates that an action has occurred (by any user).
@@ -172,7 +174,11 @@ export interface DbUserActionDoc {
   _id?: string;
   type: 'game-data-action';
   game: string;
-  action: any;
-  next?: string;
+  // All actions in chain.
+  actions: any[];
+  // Action preceding this one, if any
+  prev?: string;
+  // Action request ID, if any
+  request?: string;
 }
 

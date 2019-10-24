@@ -6,6 +6,7 @@ import {_PbemSettings, _PbemState, _PbemAction, _GameHooks, PbemActionWithDetail
 
 export type ServerStagingResponse<T> = ServerStagingResponse<T>;
 
+/*
 export class GameInfo {
   phase: 'staging' | 'game' | 'end' = 'staging';
   settings?: _PbemSettings;
@@ -95,7 +96,8 @@ export class _ServerLocal implements _Server {
       const a = acts[i];
       // Cannot undo before the round start or before end of game
       if (a.type === 'PbemAction.GameEnd' || a.type === 'PbemAction.RoundStart') break;
-      if (a.actionId !== action.actionId) continue;
+      throw new Error("Not implemented: actionId changes");
+      //if (a.actionId !== action.actionId) continue;
       if (a.actionGrouped) throw new PbemError("Cannot undo grouped action");
 
       //This is the action to roll back.
@@ -110,11 +112,11 @@ export class _ServerLocal implements _Server {
 
           const ak = acts[k];
           const hooks = _PbemAction.resolve(ak.type);
-          if (hooks.validateBackward) hooks.validateBackward(state, ak);
+          if (hooks.validateBackward) hooks.validateBackward!(state, ak);
           hooks.backward(state, ak);
           rolled.push(ak);
           acts.splice(k, 1);
-          if (hooks.validate) hooks.validate(state, ak);
+          if (hooks.validate) hooks.validate!(state, ak);
         }
 
         // All OK
@@ -265,3 +267,4 @@ export class ServerView implements PbemServerView<_PbemState, _PbemAction> {
   }
 }
 
+*/
