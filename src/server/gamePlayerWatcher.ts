@@ -265,11 +265,7 @@ export class GamePlayerWatcher {
         return;
       }
 
-      (async() => {
-        await this._actionValidateAndRunWithTriggersAndCommit(doc.action);
-        doc._deleted = true;
-        await this._db.put(doc);
-      })().catch(this._debug);
+      this._gameCheckNextAction();
     }
     else {
       this._debug(`Unhandled: ${doc.type}`);
@@ -292,7 +288,7 @@ export class GamePlayerWatcher {
     while (true) {
       const a = this._actions[this._actions.length - 1];
       const {docs} = await this._db.find({selector: {game: this._gameId,
-          prev: a}});
+          prev: a, type: 'game-data-action'}});
 
       if (docs.length === 0) {
         // No further actions; abort
@@ -316,6 +312,19 @@ export class GamePlayerWatcher {
       else {
         this._debug(`Bad follow doc? ${d.type} / ${d._id}`);
       }
+    }
+
+    // Find earliest RoundStart, if this._actions[0] is not a round start
+    let firstAction = this._actionCache[this._actions[0]];
+    while (firstAction.actions[0].type !== 'PbemAction.RoundStart') {
+      if (firstAction.prev === undefined) {
+        this._debug(`No first action which is 'PbemAction.RoundStart'?`);
+        break;
+      }
+      const prevAction: DbUserActionDoc = await this._db.get(firstAction.prev);
+      this._actions.unshift(prevAction._id!);
+      this._actionCache[prevAction._id!] = prevAction;
+      firstAction = prevAction;
     }
 
     // Go to latest action.
@@ -388,7 +397,7 @@ export class GamePlayerWatcher {
   /** Both validate and run an action, INCLUDING all follow-up actions and 
    * setup() functions. */
   async _actionValidateAndRunWithTriggersAndCommit(
-      action: PbemActionWithDetails<_PbemAction>) {
+      action: PbemActionWithDetails<_PbemAction>, requestId?: string) {
     const ag: PbemActionWithDetails<_PbemAction>[] = this._actionGroup = [];
     const aprev = this._actionCurrent;
     const state = this._state;
@@ -432,11 +441,73 @@ export class GamePlayerWatcher {
       actions: ag,
       prev: aprev,
     };
+    if (requestId !== undefined) {
+      actionDoc.request = requestId;
+      this._actionRequestNewIds[requestId] = actionId;
+    }
     this._actionCache[actionId] = actionDoc;
 
     // Note that this next part is asynchronous, and so should be after local
     // variable modifications.
     const r = await this._db.put(actionDoc);
+  }
+
+
+  /** Called by host when a new game-response-action is available.  Checks
+   * database for all candidate actions, and runs those which should be
+   * run.  Keeps going until none found.
+   * */
+  _gameCheckNextAction() {
+    if (this._gameCheckInProgress) return;
+
+    this._gameCheckInProgress = true;
+    const p = (async () => {
+      while (await this._gameCheckNextAction_step()) {
+        // pass
+      }
+    })();
+    p.catch((e) => {
+      this._debug(`_gameCheckNextAction: ${e}`);
+    });
+    p.finally(() => { this._gameCheckInProgress = false; });
+  }
+  _gameCheckInProgress: boolean = false;
+
+  async _gameCheckNextAction_step(): Promise<boolean> {
+    const docs = (await this._db.find({
+      selector: {
+        game: this._gameId,
+        type: 'game-response-action',
+      },
+    })).docs as DbUserActionRequestDoc[];
+
+    if (docs.length === 0) return false;
+
+    // Priority given based off of action order...
+    const docsOrder = docs.map(x => {
+      const prev = x.prev;
+      const prevMapped = this._actionRequestNewIds[prev];
+      const prevId = prevMapped !== undefined ? prevMapped : prev;
+      const u = this._actions.indexOf(prevId);
+      if (u === -1) return 1e300;
+      return [u, x];
+    }).sort();
+
+    const doc = docs[0];
+
+    try {
+      await this._actionValidateAndRunWithTriggersAndCommit(doc.action, 
+          doc._id);
+    }
+    catch (e) {
+      this._debug(`Bad action ${doc._id}: ${e}`);
+    }
+    finally {
+      doc._deleted = true;
+      await this._db.put(doc);
+    }
+
+    return true;
   }
 }
 
