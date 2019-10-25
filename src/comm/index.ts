@@ -13,7 +13,8 @@ import assert from 'assert';
 import PouchDb from '../server/pouch';
 
 import {_GameHooks, _PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer,
-  PbemPlayerView, PbemAction, PbemActionWithDetails, PbemEvent, PbemState, _GameActionTypes} from '../game';
+  PbemPlayerView, PbemAction, PbemActionWithDetails, PbemActionWithId, PbemEvent, 
+  PbemState, _GameActionTypes} from '../game';
 import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
@@ -232,11 +233,28 @@ export class _ServerLink {
     const promises: Promise<any>[] = [];
     for (const w of this._localPlayerWatchers) {
       promises.push(w.init());
+      w.events.on('turnEnd', () => {
+        const j = w.playerIdx;
+        const active = this.localPlayerActive();
+        if (this.localPlayers[active].index === j) {
+          const n = (j + 1) % this.localPlayers.length;
+          if (n !== active) {
+            this.localPlayerActive(n);
+          }
+        }
+      });
     }
     await Promise.all(promises);
 
-    // Switch to first player
-    this.localPlayerActive(0);
+    // Switch to first player without turn finished.
+    let firstPlayer = 0;
+    for (const w of this._localPlayerWatchers) {
+      if (!w.isTurnEnded) {
+        firstPlayer = w.playerIdx;
+        break;
+      }
+    }
+    this.localPlayerActive(firstPlayer);
   }
 
   gameUnload() {
@@ -626,7 +644,7 @@ export class _ServerLink {
 
           // game-response-member: see if we're the joiner, and if so,
           // replicate this document to the host so they may begin
-          // bidirectional repllication.
+          // bidirectional replication.
           if (doc.type === 'game-response-member') {
             if (!this.dbIdMatches(doc.userId, userLocal)
                 || doc.userId.type !== 'local'
@@ -702,36 +720,15 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
     return this._pending;
   }
 
-  getRoundPlayerActions() {
-    const ra = PbemState.getRoundActions(this.state);
-    const a = ra.filter(x => !x.actionGrouped && x.playerOrigin === this.playerId);
-    return a;
+  getRoundPlayerActions(): PbemActionWithId<Action>[] {
+    return <PbemActionWithId<Action>[]>this._watcher.getRoundPlayerActions();
   }
 
   async action(action: Action) {
     //return this.actionMulti([type, ...args]);
     try {
       this.userActionErrorClear();
-      return await this._watcher.action(action);    
-      /*
-      const comm = this._comm;
-      if (comm === undefined) {
-        throw new ServerError.ServerError('Bad comm');
-      }
-      const s = this._state!;
-      const before = s.actions.length;
-  
-      assert(comm.gameId !== undefined);
-      await comm.gameActions(action);
-  
-      const roundStarted = s.actions.slice(before).filter((x) => x.type === 'PbemAction.RoundStart').length > 0;
-      if (roundStarted) {
-        this.localPlayerActive(0);
-      }
-      else if (s.turnEnded[this.localPlayerView.playerId]) {
-        this.localPlayerActive(
-            (this.localPlayerActive() + 1) % this.localPlayers.length);
-      }*/
+      return await this._watcher.action(action);
     }
     catch (e) {
       this.uiEvent('userError', PbemEvent.UserActionError, e);
@@ -754,11 +751,10 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
     });
   }
 
-  async undo(act: PbemActionWithDetails<_PbemAction>) {
+  async undo(act: PbemActionWithId<_PbemAction>) {
     try {
       this.userActionErrorClear();
-
-      await ServerLink.gameUndo(act);
+      return await this._watcher.undo(act);
     }
     catch (e) {
       this.uiEvent('userError', PbemEvent.UserActionError, e);

@@ -53,7 +53,10 @@ export default Vue.extend({
         await this.$pbem.undo(g);
       }
       else {
-        await this.$pbem.action('Play', i);
+        await this.$pbem.action({
+          type: 'Play',
+          game: { space: i },
+        });
       }
     },
     getLastMove(i: number) {
@@ -66,7 +69,7 @@ export default Vue.extend({
         this.$pbem.uiEvent('userError', PbemEvent.UserActionError, "haven't done anything");
         return;
       }
-      await this.$pbem.action('PbemAction.TurnEnd');
+      await this.$pbem.action({type: 'PbemAction.TurnEnd', game: {} });
     },
   },
 });

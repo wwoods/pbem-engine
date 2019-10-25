@@ -1,10 +1,12 @@
 
 import createDebug from 'debug';
+import {EventEmitter} from 'tsee';
 
-import {_GameHooks, _PbemAction, _PbemState, PbemActionWithDetails, PbemPlugin, 
-  PbemServerView} from '../game';
+import {_GameHooks, _PbemAction, _PbemState, PbemActionWithDetails, 
+  PbemActionWithId, PbemPlugin, PbemServerView} from '../game';
 import {ServerError} from '../server/common';
-import {DbGame, DbUserActionRequestDoc, DbUserActionDoc, DbGameStateDoc} from '../server/db';
+import {DbGame, DbUserActionRequestDoc, DbUserActionDoc, DbGameDoc,
+    DbGameStateDoc} from '../server/db';
 
 export interface GamePlayerWatcherOptions {
   // In `init()`, do not run a findContinuous.  That will be handled externally.
@@ -17,6 +19,21 @@ export interface GamePlayerWatcherOptions {
  * Also runs the system, when _playerIdx === -1.
  * */
 export class GamePlayerWatcher {
+  events = new EventEmitter<{
+    // Called on server game daemon shutdown.
+    turnEnd: () => void;
+  }>();
+
+  get isTurnEnded() {
+    if (this._actions[this._actions.length - 1] === this._actionCurrent
+        && this._state.turnEnded[this._playerIdx]) {
+      return true;
+    }
+    return false;
+  }
+  get playerIdx() { return this._playerIdx; }
+
+  // Logger
   _debug: debug.Debugger;
 
   // Database containing game.
@@ -91,12 +108,19 @@ export class GamePlayerWatcher {
         (p as PbemPlugin).load();
       }
     }
+    else {
+      s.plugins = {};
+    }
+    s.plugins._pbemWatcher = this;
 
     await this._actionLoadLatest();
 
     const queue = this._initQueue!;
     delete this._initQueue;
 
+    if (this._playerIdx === -1) {
+      this._gameCheckNextAction();
+    }
     this._debug('Initialized OK');
 
     if (this._options.noContinuous) {
@@ -161,12 +185,55 @@ export class GamePlayerWatcher {
     }
   }
 
+  async undo(action: PbemActionWithId<_PbemAction>) {
+    await this.action({
+      type: 'PbemAction.Undo',
+      game: {id: action._id},
+    });
+  }
+
   /** Stop watching, prepare for disposal. */
   cancel() {
     if (this._findCancel !== undefined) {
       this._findCancel.cancel();
       this._findCancel = undefined;
     }
+  }
+
+  /** Fetch actions performed by the current player during this round, which
+   * have not been undone.
+   * */
+  getRoundPlayerActions(allPlayers?: boolean): PbemActionWithId<_PbemAction>[] {
+    const actionDocs = this._actions.map(a => this._actionCache[a]);
+
+    // Always fetch actions from perspective of current action.
+    let i = this._actions.indexOf(this._actionCurrent);
+    if (i === -1) {
+      this._debug(`Bad current action?  getRoundPlayerActions()`);
+      return [];
+    }
+
+    const r: PbemActionWithId<_PbemAction>[] = [];
+    while (i >= 0) {
+      const aDoc = actionDocs[i];
+      const a = aDoc.actions[0]! as PbemActionWithDetails<_PbemAction>;
+      if (a.type === 'PbemAction.RoundStart' || a.type === 'PbemAction.GameEnd') {
+        break;
+      }
+
+      if (a.type === 'PbemAction.Undo' || a.locallyUndone) {
+        i -= 1;
+        continue;
+      }
+
+      if (allPlayers || a.playerOrigin === this._playerIdx) {
+        const b = Object.assign({_id: aDoc._id!}, a);
+        r.unshift(b);
+      }
+      i -= 1;
+    }
+
+    return r;
   }
 
   /** A document was changed or loaded; check it. */
@@ -191,17 +258,18 @@ export class GamePlayerWatcher {
       // action.
       const currentIdx = this._actions.indexOf(doc._id!);
       if (currentIdx !== -1) {
+        /* NO chance "prev" changed, as we now use an immutable action queue. 
         // Already catalogued.  There's a chance that "prev" changed.
         if (this._actionCache.hasOwnProperty(doc._id!)) {
           const docOld = this._actionCache[doc._id!];
           if (docOld.prev !== doc.prev) {
-            throw new ServerError.ServerError("Not implemented: TODO");
+            throw new ServerError.ServerError("Not implemented: was todo");
           }
         }
         if (doc.prev !== undefined && currentIdx > 0
             && doc.prev !== this._actions[currentIdx - 1]) {
-          throw new ServerError.ServerError("Not Implemented: TODO better test");
-        }
+          throw new ServerError.ServerError("Not Implemented: todo better test");
+        }*/
         this._actionCache[doc._id!] = doc;
         return;
       }
@@ -275,7 +343,7 @@ export class GamePlayerWatcher {
 
   /** Load those in "_actions" and future actions.
    * 
-   * Should also load back to RoundStart.
+   * Should also load back to RoundEnd.
    */
   async _actionLoadLatest() {
     for (const a of this._actions) {
@@ -314,11 +382,11 @@ export class GamePlayerWatcher {
       }
     }
 
-    // Find earliest RoundStart, if this._actions[0] is not a round start
+    // Find earliest RoundEnd, if this._actions[0] is not a round start
     let firstAction = this._actionCache[this._actions[0]];
-    while (firstAction.actions[0].type !== 'PbemAction.RoundStart') {
+    while (firstAction.actions[0].type !== 'PbemAction.RoundEnd') {
       if (firstAction.prev === undefined) {
-        this._debug(`No first action which is 'PbemAction.RoundStart'?`);
+        this._debug(`No first action which is 'PbemAction.RoundEnd'?`);
         break;
       }
       const prevAction: DbUserActionDoc = await this._db.get(firstAction.prev);
@@ -376,6 +444,10 @@ export class GamePlayerWatcher {
       }
       this._actionCurrent = aId;
     }
+
+    if (this.isTurnEnded) {
+      this.events.emit('turnEnd');
+    }
   }
 
   
@@ -404,14 +476,11 @@ export class GamePlayerWatcher {
     this._actionValidateAndRun(action);
     try {
       const pbem = new ServerView(this);
+      // Run user hooks
       const gameHooks = _GameHooks.State;
       if (gameHooks !== undefined && gameHooks.triggerCheck !== undefined) {
-        gameHooks.triggerCheck(pbem);
+        gameHooks.triggerCheck(pbem, action);
       }
-
-      // Check if RoundEnd should be triggered
-      const pbemHooks = _PbemState.Hooks!;
-      pbemHooks.triggerCheck!(pbem);
     }
     catch (e) {
       while (ag.length > 0) {
@@ -450,6 +519,9 @@ export class GamePlayerWatcher {
     // Note that this next part is asynchronous, and so should be after local
     // variable modifications.
     const r = await this._db.put(actionDoc);
+
+    // Once that's done, see if round should end.
+    this._gameCheckNextAction();
   }
 
 
@@ -459,6 +531,9 @@ export class GamePlayerWatcher {
    * */
   _gameCheckNextAction() {
     if (this._gameCheckInProgress) return;
+    if (this._playerIdx !== -1) {
+      throw new ServerError.ServerError("Only server may check next action");
+    }
 
     this._gameCheckInProgress = true;
     const p = (async () => {
@@ -474,6 +549,48 @@ export class GamePlayerWatcher {
   _gameCheckInProgress: boolean = false;
 
   async _gameCheckNextAction_step(): Promise<boolean> {
+    if (this._state.gameEnded) {
+      const doc: DbGameDoc = await this._db.get(this._gameId);
+      if (!doc.ended && !doc.ending) {
+        doc.ended = true;
+        doc.ending = true;
+        await this._db.put(doc);
+      }
+      // Done!
+      return false;
+    }
+
+    // First check for round start / end.
+    if (!this._state.roundEnded) {
+      // Check for round end
+      let allDone = true;
+      const p = this._state.settings.players;
+      for (let i = 0, m = p.length; i < m; i++) {
+        if (p[i] === undefined) continue;
+        allDone = allDone && this._state.turnEnded[i];
+      }
+      if (allDone) {
+        // All ready - advance round.
+        await this._actionValidateAndRunWithTriggersAndCommit({
+          type: 'PbemAction.RoundEnd',
+          playerOrigin: -1,
+          game: {},
+        });
+        return true;
+      }
+    }
+    else {
+      // Round was ended; we should be only one attempting to start.  Start
+      // a new round!
+      await this._actionValidateAndRunWithTriggersAndCommit({
+        type: 'PbemAction.RoundStart',
+        playerOrigin: -1,
+        game: {},
+      });
+      return true;
+    }
+
+    // Now check if there was an action request
     const docs = (await this._db.find({
       selector: {
         game: this._gameId,
@@ -481,7 +598,9 @@ export class GamePlayerWatcher {
       },
     })).docs as DbUserActionRequestDoc[];
 
-    if (docs.length === 0) return false;
+    if (docs.length === 0) {
+      return false;
+    }
 
     // Priority given based off of action order...
     const docsOrder = docs.map(x => {
@@ -523,10 +642,4 @@ class ServerView implements PbemServerView<_PbemState, _PbemAction> {
   action(action: _PbemAction): void {
     this._watcher.action(action);
   }
-}
-
-
-/** Interface for storing information on actions. */
-interface _PbemActionFromDb {
-  action: PbemActionWithDetails<_PbemAction>;
 }

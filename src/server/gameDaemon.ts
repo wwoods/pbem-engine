@@ -181,6 +181,7 @@ export class ServerGameDaemon {
                   const {docs} = await this._db.find({selector: {
                     game: this._id}});
                   for (const d of docs) {
+                    if (d._id === doc._id) continue;
                     d._deleted = true;
                     bulk.push(d);
                   }
@@ -219,15 +220,23 @@ export class ServerGameDaemon {
             game: this._id,
             actions: [
               _PbemAction.create({
-                type: 'PbemAction.RoundStart',
+                type: 'PbemAction.RoundEnd',
                 game: {},
-              } as PbemAction.Types.RoundStart),
+              } as PbemAction.Types.RoundEnd),
             ],
           };
           const actionFirstResponse = await this._db.post(actionFirst);
 
           // TODO pass this state to the watcher.
+          // NOTE - the _pbemWatcher plugin is NOT set at this point; if state
+          // were to be preserved, that would need to happen.  Preferably in
+          // an extensible manner.
           const state = await _PbemState.create(doc.settings);
+
+          // Trick to get first PbemAction.RoundStart event to run triggers
+          // as normal rounds - start with round 0 ended!
+          state.roundEnded = true;
+
           await this._db.post({
             type: 'game-data-state',
             game: this._id,

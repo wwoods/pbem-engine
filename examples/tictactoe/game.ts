@@ -101,54 +101,67 @@ export namespace State {
         g.scores.push(0);
       }
     },
-    triggerCheck(pbem, sinceAction) {
-      const state = pbem.state;
-      if (state.game.playerWillWin === undefined) {
-        //state.game === this
-        const g = state.game;
-        let p: string = ' ';;
-        for (let i = 0; i < 3; i++) {
-          const a = g.board[i];
-          if (a !== ' '
-              && a === g.board[i + 3]
-              && a === g.board[i + 6]) {
-            p = a;
+    triggerCheck(pbem, action) {
+      if (action.type === 'Play') {
+        const state = pbem.state;
+        if (state.game.playerWillWin === undefined) {
+          //state.game === this
+          const g = state.game;
+          let p: string = ' ';;
+          for (let i = 0; i < 3; i++) {
+            const a = g.board[i];
+            if (a !== ' '
+                && a === g.board[i + 3]
+                && a === g.board[i + 6]) {
+              p = a;
+            }
           }
-        }
-        for (let i = 0; i < 9; i += 3) {
-          const a = g.board[i];
-          if (a !== ' '
-              && a === g.board[i + 1]
-              && a === g.board[i + 2]) {
-            p = a;
+          for (let i = 0; i < 9; i += 3) {
+            const a = g.board[i];
+            if (a !== ' '
+                && a === g.board[i + 1]
+                && a === g.board[i + 2]) {
+              p = a;
+            }
           }
-        }
 
-        {
-          const a = g.board[4];
-          if (a !== ' '
-              && (
-                a === g.board[0] && a === g.board[8]
-                || a === g.board[2] && a === g.board[6])) {
-            p = a;
+          {
+            const a = g.board[4];
+            if (a !== ' '
+                && (
+                  a === g.board[0] && a === g.board[8]
+                  || a === g.board[2] && a === g.board[6])) {
+              p = a;
+            }
+          }
+
+          if (p !== ' ') {
+            const player = g.playerSymbolReverse[p];
+            pbem.action({
+              type: 'WillWin',
+              game: {
+                player,
+              },
+            });
           }
         }
+      }
 
-        if (p !== ' ') {
-          const player = g.playerSymbolReverse[p];
-          pbem.action('WillWin', player);
+      if (action.type === 'PbemAction.RoundStart') {
+        // End of game check
+        const player = pbem.state.game.playerWillWin;
+        if (player !== undefined) {
+          pbem.action({
+            type: 'ThreeInARow',
+            game: { player },
+          });
+          pbem.action({
+            type: 'PbemAction.GameEnd',
+            game: {},
+          });
         }
       }
     },
-    roundEnd(pbem) {
-      const player = pbem.state.game.playerWillWin;
-      if (player !== undefined) {
-        pbem.actionMulti(
-            ['ThreeInARow', player],
-            ['PbemAction.GameEnd'],
-        );
-      }
-    }
   };
 }
 
@@ -179,9 +192,6 @@ export namespace Action {
       space: number,
     }>;
     export const Play: PbemAction.Hooks<State, Play> = {
-      init(action, space: number) {
-        action.game.space = space;
-      },
       validate(state, action) {
         // pbem-engine validates that playerOrigin is coming from an actual
         // player.
@@ -194,7 +204,7 @@ export namespace Action {
         // TODO actions[] should not be a list of player actions... computed
         // property?  No, using interfaces... PbemState.playerActionCount()?
         const actions = PbemState.getRoundActions(state)
-            .filter((x) => !x.actionGrouped && x.playerOrigin === action.playerOrigin)
+            .filter((x) => !x.locallyUndone && x.playerOrigin === action.playerOrigin)
             ;
         if (actions.length > 0) throw new PbemError('No free action');
 
@@ -219,9 +229,6 @@ export namespace Action {
       player: number,
     }>;
     export const WillWin: PbemAction.Hooks<State, WillWin> = {
-      init(action, player: number) {
-        action.game.player = player;
-      },
       validate(state, action) {
         if (action.playerOrigin !== -1) throw new PbemError("Unauthorized");
 
@@ -244,9 +251,6 @@ export namespace Action {
       player: number;
     }>;
     export const ThreeInARow: PbemAction.Hooks<State, ThreeInARow> = {
-      init(action, player: number) {
-        action.game.player = player;
-      },
       validate(state, action) {
         if (action.playerOrigin !== -1) throw new PbemError("Unauthorized");
       },

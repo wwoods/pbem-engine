@@ -194,12 +194,14 @@ export namespace PbemSettings {
 
 
 export interface _PbemState {
-  actions: readonly PbemActionWithDetails<_PbemAction>[];
   events: Readonly<Array<_PbemEvent[]>>;
   settings: Readonly<_PbemSettings>;
   game: any;
   gameEnded: boolean;
   round: number;
+  // Indicates clients may no longer add new actions, as the server is in a 
+  // state of computing the next turn.
+  roundEnded: boolean;
   turnEnded: boolean[];
   plugins: {
     [key: string]: PbemPlugin,
@@ -208,12 +210,12 @@ export interface _PbemState {
 export namespace _PbemState {
   export async function create<Settings extends _PbemSettings>(settings: Settings) {
     const s: _PbemState = {
-      actions: [],
       events: [],
       settings,
       game: {},
       gameEnded: false,
       round: 1,
+      roundEnded: false,
       turnEnded: [],
       plugins: {},
     };
@@ -237,30 +239,6 @@ export namespace _PbemState {
     await _GameHooks.State!.init(s);
     return s as _PbemState;
   }
-
-  export const Hooks: PbemState.Hooks<PbemState<any, any, any>, _PbemAction> = {
-    // Just to keep typescript happy.
-    init(state) {},
-    triggerCheck(pbem) {
-      let allDone = true;
-      const p = pbem.state.settings.players;
-      for (let i = 0, m = p.length; i < m; i++) {
-        if (p[i] === undefined) continue;
-        allDone = allDone && pbem.state.turnEnded[i];
-      }
-      if (allDone) {
-        // All ready - advance round.
-        pbem.action({type: 'PbemAction.RoundEnd'});
-
-        const re = _GameHooks.State!.roundEnd;
-        if (re !== undefined) re(pbem);
-
-        if (!pbem.state.gameEnded) {
-          pbem.action({type: 'PbemAction.RoundStart'});
-        }
-      }
-    },
-  };
 }
 
 export interface PbemPlugin {
@@ -316,37 +294,39 @@ export namespace PbemState {
     init: {(state: State): void};
     /** Convert a loaded game, if necessary. */
     load?: {(state: State): void};
-    /** Check for triggers after any action. */
-    triggerCheck?: {(pbem: PbemServerView<State, Action>): void};
+    /** Check for triggers after any initial action - not called for actions 
+     * which result from the trigger!. */
+    triggerCheck?: {(pbem: PbemServerView<State, Action>, 
+        action: PbemActionWithDetails<Action>): void};
     /** Do something at end of round (actions added are added before the
      * PbemAction.NewRound action). */
     roundEnd?: {(pbem: PbemServerView<State, Action>): void};
   }
 
 
-  export function getRoundActions<State extends _PbemState>(state: State) {
-    const act = state.actions;
-    let i = act.length - 1;
-    while (i >= 0) {
-      if (act[i].type === 'PbemAction.RoundStart' || act[i].type === 'PbemAction.GameEnd') {
-        break;
-      }
-      --i;
-    }
-    return act.slice(i + 1);
+  export function getRoundActions<State extends _PbemState, 
+      Action extends _PbemAction>(state: State): PbemActionWithId<Action> []{
+    const watcher = (state.plugins as any)._pbemWatcher;
+    return watcher.getRoundPlayerActions(true);
   }
 }
 
 
 export interface PbemActionDetails {
   playerOrigin: number;
-  actionGrouped: boolean;
 }
 export interface _PbemAction {
   type: any;
   game?: any;
+
+  // Shouldn't ever be persisted.  Demonstrates that the action has had "undo"
+  // performed on it.
+  locallyUndone?: boolean;
 }
 export type PbemActionWithDetails<Action extends _PbemAction> = PbemActionDetails & Action;
+export type PbemActionWithId<Action extends _PbemAction> = PbemActionDetails & Action & {
+  _id: string;
+};
 
 export namespace _PbemAction {
   export function create(action: Readonly<_PbemAction>): PbemActionWithDetails<_PbemAction> {
@@ -357,7 +337,6 @@ export namespace _PbemAction {
 
     const a: PbemActionWithDetails<_PbemAction> = Object.assign({
       playerOrigin: -1,
-      actionGrouped: false,
     }, action);
     return a;
   }
@@ -401,11 +380,17 @@ export namespace PbemAction {
         if (action.playerOrigin >= 0) {
           throw new PbemError('Must be server to end game');
         }
+        if (state.roundEnded) {
+          throw new PbemError('PbemAction.GameEnd should be a response to '
+              + 'RoundStart, not RoundEnd');
+        }
       },
       forward(state, action) {
+        state.roundEnded = true;
         state.gameEnded = true;
       },
       backward(state, action) {
+        state.roundEnded = false;
         state.gameEnded = false;
       },
     };
@@ -418,17 +403,22 @@ export namespace PbemAction {
         if (action.playerOrigin >= 0) {
           throw new PbemError('Must be server to end round');
         }
+        if (state.roundEnded) {
+          throw new PbemError('Round already ended?');
+        }
       },
       setup(state, action) {
         action.game.turnEnded = state.turnEnded.slice();
       },
       forward(state, action) {
-        state.round += 1;
+        state.roundEnded = true;
+        // If any of the game's RoundEnd hook wants to specify that certain
+        // players do not have a turn, they may.
         state.turnEnded = state.turnEnded.map((x) => false);
       },
       backward(state, action) {
         state.turnEnded = action.game.turnEnded!.slice();
-        state.round -= 1;
+        state.roundEnded = false;
       },
     };
 
@@ -439,10 +429,17 @@ export namespace PbemAction {
         if (action.playerOrigin >= 0) {
           throw new PbemError('Must be server to start round');
         }
+        if (!state.roundEnded) {
+          throw new PbemError('Round must be ended before RoundStart');
+        }
       },
       forward(state, action) {
+        state.roundEnded = false;
+        state.round += 1;
       },
       backward(state, action) {
+        state.round -= 1;
+        state.roundEnded = true;
       },
     };
 
@@ -466,6 +463,101 @@ export namespace PbemAction {
       },
       backward(state, action) {
         state.turnEnded.splice(action.playerOrigin, 1, false);
+      },
+    };
+
+    /** Undo itself is considered an action, to give immutability to the 
+     * action queue and prevent needing to overwrite "prev".
+     * */
+    export type Undo = PbemAction<'PbemAction.Undo', {id: string}>;
+    export const Undo: Hooks<_PbemState, Undo> = { 
+      validate(state, undoAction) {
+        const actionId = undoAction.game.id;
+        const watcher = (state.plugins as any)._pbemWatcher;
+
+        // Very implementation dependent... don't want to pull DB into game 
+        // imports though, so using a bunch of "any"
+        const actionDoc: {actions: PbemActionWithDetails<_PbemAction>[]}
+            = watcher._actionCache[actionId];
+        if (actionDoc === undefined) {
+          throw new PbemError('Action not loaded?');
+        }
+        if (actionDoc.actions[0].playerOrigin !== undoAction.playerOrigin) {
+          throw new PbemError("Cannot undo another player's action");
+        }
+        if (undoAction.playerOrigin === -1) {
+          throw new PbemError("Cannot undo a system action");
+        }
+
+        const roundActions: PbemActionWithId<_PbemAction>[] 
+            = (<PbemActionWithId<_PbemAction>[]>watcher.getRoundPlayerActions(true))
+              .filter(x => x.playerOrigin === undoAction.playerOrigin);
+        const roundActionsIds = roundActions.map(x => x._id);
+        const actionIdx: number = roundActionsIds.indexOf(actionId);
+        if (actionIdx === -1) {
+          throw new PbemError("Action not found in current round");
+        }
+    
+        // Try a local rewind, to catch errors.
+        let i = actionDoc.actions.length;
+        try {
+          while (i > 0) {
+            const a = actionDoc.actions[i - 1];
+            if (a.locallyUndone) {
+              throw new PbemError("Action already undone");
+            }
+
+            const hooks = _PbemAction.resolve(a.type);
+            if (hooks.validateBackward !== undefined) {
+              hooks.validateBackward(state, a);
+            }
+            hooks.backward(state, a);
+            // At this point, would want to re-forward() the action on a failure.
+            i -= 1;
+            a.locallyUndone = true;
+            // Must also pass forward validation
+            if (hooks.validate !== undefined) {
+              hooks.validate(state, a);
+            }
+          }
+        }
+        finally {
+          // Regardless of pass or fail, we don't want to locally apply the undo
+          // before the server approves.
+          for (let j = i, m = actionDoc.actions.length; j < m; j++) {
+            const a = actionDoc.actions[j];
+            delete a.locallyUndone;
+
+            const hooks = _PbemAction.resolve(a.type);
+            hooks.forward(state, a);
+          }
+        }
+      },
+      validateBackward(state, action) {
+        // Just... don't allow this.
+        throw new PbemError("Cannot undo an undo event");
+      },
+      forward(state, undoAction) {
+        const watcher = (state.plugins as any)._pbemWatcher;
+        const actionDoc: {actions: PbemActionWithDetails<_PbemAction>[]}
+            = watcher._actionCache[undoAction.game.id];
+        for (let i = actionDoc.actions.length - 1; i > -1; i -= 1) {
+          const a = actionDoc.actions[i];
+          a.locallyUndone = true;
+          const hooks = _PbemAction.resolve(a.type);
+          hooks.backward(state, a);
+        }
+      },
+      backward(state, undoAction) {
+        const watcher = (state.plugins as any)._pbemWatcher;
+        const actionDoc: {actions: PbemActionWithDetails<_PbemAction>[]}
+            = watcher._actionCache[undoAction.game.id];
+        for (let i = 0, m = actionDoc.actions.length; i < m; i++) {
+          const a = actionDoc.actions[i];
+          delete a.locallyUndone;
+          const hooks = _PbemAction.resolve(a.type);
+          hooks.forward(state, a);
+        }
       },
     };
   }
