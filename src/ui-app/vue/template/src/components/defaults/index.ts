@@ -1,10 +1,10 @@
 
 import PbemEventBar from './pbem-event-bar.vue';
 import PbemGameView from './pbem-game-view.vue';
-import PbemIsometricViewDom from './pbem-isometric-view-dom.vue';
-import PbemIsometricViewPixi from './pbem-isometric-view-pixi.vue';
 import PbemSplashscreenPassAndPlay from './pbem-splashscreen-pass-and-play.vue';
 import PbemStagingSettings from './pbem-staging-settings.vue';
+
+import VueExtra from './extra';
 
 export const pbemVueDefaultsPlugin = {
   install(Vue: any, options: {}) {
@@ -13,9 +13,7 @@ export const pbemVueDefaultsPlugin = {
     Vue.component('pbem-splashscreen-pass-and-play', PbemSplashscreenPassAndPlay);
     Vue.component('pbem-staging-settings', PbemStagingSettings);
 
-    // Doesn't take up too much space, ideally...
-    Vue.component('pbem-isometric-view-dom', PbemIsometricViewDom);
-    Vue.component('pbem-isometric-view-pixi', PbemIsometricViewPixi);
+    VueExtra.install(Vue, options);
   },
 };
 

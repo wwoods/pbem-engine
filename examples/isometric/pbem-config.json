@@ -1,6 +1,10 @@
 {
   "name": "PBEM Isometric Demo",
   "version": "1.0.0",
+  "pbem-extra": [
+    "ecs",
+    "isometric"
+  ],
   "game": {
   },
   "ui": {

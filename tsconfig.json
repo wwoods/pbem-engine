@@ -30,6 +30,7 @@
   ],
   "exclude": [
     "node_modules",
+    "src/extra/**/vue/**/*",
     "src/ui-app/vue/template"
   ]
 }

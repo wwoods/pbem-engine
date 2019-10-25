@@ -10,6 +10,8 @@ import {fileURLToPath} from 'url';
 //Remember, path relative to typescript-built "lib" folder.
 const pbemVueTemplate = path.join(path.dirname(__filename), "../../../src/ui-app/vue/template");
 
+const pbemExtra = path.join(path.dirname(__filename), "../../../src/extra");
+
 const pbemEnginePackage = path.join(path.dirname(__filename), "../../../");
 
 /*
@@ -104,6 +106,41 @@ function checkPackageConfig(buildPath: string, cfg: any, pbemCfg: Config) {
       if (cfg[i] !== pbemCfg[i]) {
         dirty = true;
         cfg[i] = pbemCfg[i];
+      }
+    }
+    else if (i === "pbem-extra") {
+      // See that all extras UI packages are installed
+      const cc = cfg[i] || [];
+      const pc = pbemCfg[i] || [];
+      if (cc.join(',,,') !== pc.join(',,,')) {
+        dirty = true;
+        cfg[i] = pbemCfg[i];
+
+        const extraPath = path.join(buildPath, 'src', 'components',
+            'defaults', 'extra');
+        rimraf.sync(extraPath);
+
+        fs.mkdirSync(extraPath);
+        const plugs = [];
+        for (const extra of pc) {
+          const vueSrc = path.join(pbemExtra, extra, 'vue');
+          if (fs.existsSync(vueSrc)) {
+            fsExtra.copySync(vueSrc, path.join(extraPath, extra));
+            plugs.push(extra);
+          }
+        }
+        const imports = plugs.map(x => `import ${x} from './${x}';`);
+        const installs = plugs.map(x => `${x}.install(Vue, options);`);
+        fs.writeFileSync(path.join(extraPath, 'index.ts'), `
+            /** Auto-generated for plugins from pbem-config.json */
+            ${imports.join('\n')}
+            const VuePlugin = {
+              install(Vue: any, options: any) {
+                ${installs.join('\n')}
+              }
+            };
+            export default VuePlugin;
+            `);
       }
     }
     else if (i === "game") {
