@@ -14,7 +14,12 @@
 
 import {_PbemSettings} from '../game';
 
-/** Document in game dtaabase. */
+/** Document in game database. 
+ * 
+ * Note that databases may get quite large, as 1 action = 1 document.  So,
+ * important to scan only changes (DbUserActionRequestDoc) and states, 
+ * traversing the action tree using an efficient index.
+*/
 export type DbGame = DbGameDoc | DbGameStateDoc | DbUserActionDoc | DbUserActionRequestDoc | DbUserGameInvitationDoc | DbUserGameMembershipDoc;
 
 /** Document in user database. */

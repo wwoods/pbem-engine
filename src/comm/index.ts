@@ -564,10 +564,6 @@ export class _ServerLink {
 
       // Local synchronization code.  More fancy, since it requires watching
       // changes.
-      // Databases may be quite large given 1 action = 1 document, so we'll
-      // look at changes going forward, and find immediately relevant documents
-      // at database init.
-      const userGames = new Map<string, ServerGameDaemon>();
       const userIdsDocs = (await db.find({selector: {type: 'user-ids'}})).docs;
       if (userIdsDocs.length === 0) {
         const d: DbUserIdsDoc = {
@@ -583,7 +579,18 @@ export class _ServerLink {
       else if (userIdsDocs.length !== 1) {
         console.log(`More than one userIdsDocs? ${userIdsDocs.length}`);
       }
-      let userIdLocalActive = (userIdsDocs[0] as DbUserIdsDoc).localIdActive;
+
+      // Signal that this user db needs to be checked for changes.  Since local,
+      // the service will not time out.
+      ServerGameDaemonController.runForDb(db, 'local');
+      TODO delete below?
+
+      TODO // change user ID to include "user", then DB name matches.
+
+      EACH // db responsible for pushing changes to necessary parties, and
+           //    running game daemons when needed.
+           // game responsible only for its own documents / progressing state
+
       db.findContinuous(
           {type: {$in: ['game-data', 'game-response-member', 'user-ids']}},
         doc => {
@@ -592,13 +599,9 @@ export class _ServerLink {
             id: userIdLocal,
           };
 
-          // user-ids: update player's current active ID, terminate games if
-          // changed.
           if (doc.type === 'user-ids') {
-            userIdLocalActive = doc.localIdActive;
-            for (const gd of userGames.values()) {
-              gd.changeLocalActiveId(userIdLocalActive);
-            }
+            // user-ids: update player's current active ID, terminate games if
+            // changed.  Or rather, could terminate games...  TBD.
             return;
           }
 
@@ -616,14 +619,8 @@ export class _ServerLink {
               return;
             }
 
-            // Only goal is to ensure a daemon is started; it will be
-            // listening for its own game-data changes after that.
-            if (userGames.has(doc._id!)) return;
-
-            const d = new ServerGameDaemon(db as PouchDB.Database<DbGame>,
-                doc, {
-              localId: userIdLocal,
-              localActiveId: userIdLocalActive,
+            ServerGameDaemonController.ensureRunning(
+              db.name,
               dbResolver: userId => {
                 if (userId.type !== 'local') return undefined;
 
@@ -633,6 +630,13 @@ export class _ServerLink {
                   }
                 }
                 return undefined;
+              },
+            );
+            const d = new ServerGameDaemon(db as PouchDB.Database<DbGame>,
+                doc, {
+              localId: userIdLocal,
+              localActiveId: userIdLocalActive,
+              dbResolver: userId => {
               },
             });
             d.events.on('delete', () => {

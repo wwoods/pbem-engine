@@ -33,7 +33,6 @@ program
   .action((cmd: any) => {
     const cfg = './pbem-config.json';
     assert(fs.existsSync(cfg), `No such file: ${cfg}`);
-
     const config = JSON.parse(fs.readFileSync(cfg));
 
     if (cmd.opts().clean) {
@@ -129,6 +128,30 @@ program
     execFileSync('npx', ['--no-install', 'serve', '-l', '8080', '-s', path.join(pbem_client_folder, 'dist')], {
       stdio: 'inherit',
     });
+  })
+;
+
+
+program
+  .command('run')
+  .description('run the game in production mode.')
+  .action((cmd: any) => {
+    const cfg = './pbem-config.json';
+    assert(fs.existsSync(cfg), `No such file: ${cfg}`);
+    const config = JSON.parse(fs.readFileSync(cfg));
+
+    // https://docs.couchdb.org/en/2.1.2/best-practices/nginx.html#reverse-proxying-couchdb-in-a-subdirectory-with-nginx
+    for (const g of _gameFilesGetPaths()) {
+      _gameFilesUpdate(g, pbem_client_src_folder, true);
+    }
+
+    execFileSync('npm', ['run', 'build'], {
+      cwd: pbem_client_folder,
+      stdio: 'inherit',
+    });
+
+    require('../webserver').run(path.join(pbem_client_folder, 'dist'), 
+        config.db).catch(console.error);
   })
 ;
 
