@@ -13,6 +13,7 @@
             :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}"
             ) {{user.name}}
     .pbem-games
+      span Active games
       ul
         li(
             v-for="game of games" 
@@ -20,8 +21,15 @@
             @click="gameLoad(game.game)"
             )
             span {{gameName(game)}}
-            span(v-if="game.gameEnded") &nbsp;(Ended)
-      span TODO: active games.
+            span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+      span Finished games
+      ul 
+        li(
+          v-for="game of gamesEnded"
+          :gameId="game.game"
+          @click="gameLoad(game.game)"
+        )
+          span {{gameName(game)}}
     .pbem-menu(v-if="$pbemServer.userLocalId")
       input(type="button" @click="createLocal()" value="Create local")
 </template>
@@ -50,6 +58,7 @@ export default Vue.extend({
     return {
       username: 'Guest1',
       games: [] as Array<DbUserGameMembershipDoc>,
+      gamesEnded: [] as Array<DbUserGameMembershipDoc>,
       users: [] as Array<DbLocalUserDefinition>,
     };
   },
@@ -103,6 +112,14 @@ export default Vue.extend({
       catch (e) {
         this.games = [];
       }
+
+      this.games.sort((a, b) => {
+        if (a.gamePhaseChange === undefined) return -1;
+        if (b.gamePhaseChange === undefined) return 1;
+        return b.gamePhaseChange - a.gamePhaseChange;
+      });
+      this.gamesEnded = this.games.filter(x => x.gameEnded);
+      this.games = this.games.filter(x => !x.gameEnded);
     },
     async userCreate(username: string) {
       await this.$pbemServer.userCreate(username);

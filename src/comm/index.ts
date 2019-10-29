@@ -540,6 +540,7 @@ export class _ServerLink {
     let ddocs = (docs as DbGameDoc[]).filter(d => d.phase === 'staging');
     for (const d of ddocs) {
       d.phase = 'game';
+      d.phaseChange = Date.now();
       // Validate settings prior to writing the phase change.
       _PbemSettings.Hooks.validate!(d.settings);
       const hooks = _GameHooks.Settings!;

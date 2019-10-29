@@ -8,7 +8,7 @@
 import createDebug from 'debug';
 
 import { ServerError } from './common';
-import { DbUser, DbGame } from './db';
+import { DbUser, DbGame, DbGameDoc } from './db';
 import { ServerGameDaemon } from './gameDaemon';
 import PouchDb from './pouch';
 
@@ -32,6 +32,8 @@ namespace DaemonStatus {
 const heartbeat = 300;
 const timeout = heartbeat * 3;
 const backoff = 10;
+
+const archiveGamesToKeep = 3;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -232,8 +234,52 @@ export namespace ServerGameDaemonController {
             if (d.userId.id === db.name) {
               d.gamePhase = doc.phase;
               d.gameEnded = doc.ended;
+              d.gamePhaseChange = doc.phaseChange;
               await db.put(d);
             }
+          }
+        }
+
+        // TODO this doesn't handle "ending", meaning that a client will 
+        // technically delete all game information earlier than necessary,
+        // and a host will potentially delete this game before it's replicated.
+
+        // See if older games need to be deleted.
+        const games = (await db.find({
+          selector: {
+            type: 'game-data',
+            ended: true,
+          },
+        })).docs as DbGameDoc[];
+        const gg = games;
+        gg.sort((a, b) => {
+          if (a.phaseChange === undefined) return 1;
+          if (b.phaseChange === undefined) return -1;
+          return a.phaseChange - b.phaseChange;
+        });
+        while (gg.length > archiveGamesToKeep) {
+          const gameDoc = gg.shift()!;
+          while (true) {
+            const toDelete = (await db.find({
+              selector: {
+                game: gameDoc._id!,
+              },
+              limit: 10,
+            })).docs;
+
+            const isLast = (toDelete.length < 10);
+            for (let i = toDelete.length - 1; i > -1; i -= 1) {
+              const d = toDelete[i];
+              if (d.type === 'game-data' && !isLast) {
+                // Delete this last.
+                toDelete.splice(i, 1);
+                continue;
+              }
+              d._deleted = true;
+            }
+
+            await db.bulkDocs(toDelete);
+            if (isLast) break;
           }
         }
       }

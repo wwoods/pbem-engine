@@ -139,6 +139,14 @@ export class ServerGameDaemon {
 
         await this._replicate(doc._id!);
 
+        if (this._db.name.startsWith('game')) {
+          // Delete on ended - users have everything they need for replays.
+          await this._db.destroy();
+          this.deactivate();
+          this.events.emit("delete");
+          return;
+        }
+
         // Unsetting 'ending' will deactivate ourselves and terminate
         // all replications.
         doc.ending = false;

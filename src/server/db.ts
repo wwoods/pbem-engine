@@ -77,6 +77,9 @@ export interface DbGameDoc {
   // in progress, and 'end' means that the game is immutable (finished).
   // 'ending' is a transient state meaning that all clients should be
   phase: GamePhase;
+  // ms since epoch, time of game phase change.  May be re-set to undefined to
+  // prevent a game from being deleted.
+  phaseChange?: number;
   // Signals that the game requires one final replication to clients, and then
   // it's over.  Appends '-ended' to the current phase when done.
   // NOTE: Game daemon still runs until 'ending' set to false.
@@ -163,9 +166,10 @@ export interface DbUserGameMembershipDoc {
   gameAddr: DbGameAddress;
   // Game ID for filtering - should match gameAddr.
   game: string;
-  // These two fields copied in gameDaemonController.ts
+  // These fields copied in gameDaemonController.ts
   gamePhase?: GamePhase;
   gameEnded?: boolean;
+  gamePhaseChange?: number;
   // Host name, for displaying game in lobby.
   hostName: string;
   // Game description information, for rendering the name in a lobby, copied
