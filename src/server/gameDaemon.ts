@@ -1,10 +1,10 @@
 
-import createDebug from 'debug';
 import {EventEmitter} from 'tsee';
 
 import {ServerError} from './common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
-  DbUser, DbUserId, DbUserActionDoc} from './db';
+  DbUser, DbUserId, DbUserActionDoc, DbGameStateDoc} from './db';
+import {DaemonToken} from './gameDaemonController';
 import {GamePlayerWatcher} from './gamePlayerWatcher';
 import PouchDb from './pouch';
 
@@ -17,101 +17,61 @@ import {PbemPlayer, _PbemState, _PbemAction, PbemAction} from '../game';
  * */
 export class ServerGameDaemon {
   events = new EventEmitter<{
-    // Called on server game daemon shutdown.
+    // Called on server game daemon shutdown due to game deletion.
     delete: () => void;
   }>();
 
   get id() { return this._id; }
 
   _active: boolean = false;
-  _activeInitialized?: Promise<void>;
-  _activeInitialized_cb?: [any, any];
+  _context: 'local' | 'remote';
   _db: PouchDB.Database<DbGame>;
-  _dbResolver: (userId: DbUserId) => PouchDB.Database<DbUser> | undefined;
+  _dbResolver: (dbName: string) => PouchDB.Database<DbUser> | undefined;
   _debug: debug.Debugger;
-  _host: DbUserId;
+  _host!: DbUserId;
   _id: string;
-  _localUser?: {id: string, activeId: string};
-  // Foreign DB: [to, from].
-  _replications = new Map<string, [PouchDB.FindContinuousCancel, PouchDB.FindContinuousCancel]>();
+  // DBs open for replicating to, or undefined, if game host != context.  That
+  // is, a local context for a remote game is not responsible for replication.
+  _replications: PouchDB.Database<DbUser>[] | undefined;
+  _token: DaemonToken;
   _watcher?: GamePlayerWatcher;
-  _watcherFind?: PouchDB.FindContinuousCancel;
 
   /** Note that `_dbResolver` may be called multiple times with the same user
    * database, and should return the same connection (or a pooled version)
    * wherever possible.
    * */
   constructor(
+    token: DaemonToken,
     db: PouchDB.Database<DbGame>,
-    doc: DbGameDoc,
-    options: {
-      localId?: string,
-      localActiveId?: string,
-      dbResolver: (userId: DbUserId) => (PouchDB.Database<DbUser> | undefined),
-    }
+    dbResolver: (dbName: string) => PouchDB.Database<DbUser> | undefined,
+    context: 'local' | 'remote',
+    gameId: string,
   ) {
+    this._token = token;
+    this._context = context;
     this._db = db;
-    this._id = doc._id!;
-    this._host = doc.host;
-    this._dbResolver = options.dbResolver;
-    this._debug = createDebug(`pbem-engine:game-${this._id}`);
-    if (options.localId !== undefined) {
-      this._localUser = {
-        id: options.localId!,
-        activeId: options.localActiveId!,
-      };
-    }
+    this._id = gameId;
+    this._dbResolver = dbResolver;
+    this._debug = this._token.debug;
 
-    if (doc.host.type !== 'local'
-        || this._localUser !== undefined
-          && doc.host.id === this._localUser.activeId) {
-      this.activate();
-    }
-  }
-
-  changeLocalActiveId(localActiveId: string) {
-    if (this._localUser === undefined) return;
-
-    this._localUser!.activeId = localActiveId;
-    if (this._localUser!.activeId !== this._localUser!.id) {
-      this.deactivate();
-    }
-    else {
-      this.activate();
-    }
+    this.activate();
   }
 
   /** Make this ServerGameDaemon active. */
   activate() {
     if (this._active) return;
     this._active = true;
-    this._activeInitialized = new Promise((resolve, reject) => {
-      this._activeInitialized_cb = [resolve, reject];
-    });
 
     this._debug('activated');
 
     (async () => {
-
+      // Ensure we're the right type of game, and that all invites/responses
+      // for members are correct.
       await this._handleSettingsCheck();
 
-      this._watcherFind = this._db.findContinuous(
+      await this._token.changeProcess(
         {game: this._id},
-        doc => {
-          this._handleGameDoc(doc);
-          const w = this._watcher;
-          if (w !== undefined) w.triggerLoadOrChange(doc);
-        },
-        noMatch => {
-          if (!noMatch) {
-            this._activeInitialized_cb![0]();
-          }
-          else {
-            this.deactivate();
-            this._activeInitialized_cb![1](new ServerError.NoSuchGameError(
-                this._id));
-          }
-        },
+        this._handleGameDoc.bind(this),
       );
 
     })().catch((e) => {
@@ -123,25 +83,14 @@ export class ServerGameDaemon {
   /** Make this ServerGameDaemon inactive. */
   deactivate() {
     if (!this._active) return;
+    this._token.defunct = true;
     this._debug('deactivating');
     (async () => {
-
       if (this._watcher !== undefined) {
         this._watcher.cancel();
         this._watcher = undefined;
       }
-
-      if (this._watcherFind !== undefined) {
-        this._watcherFind.cancel();
-        this._watcherFind = undefined;
-      }
-
-      for (const r of this._replications.values()) {
-        r[0].cancel();
-        r[1].cancel();
-      }
-      this._replications.clear();
-
+      
       this._active = false;
 
     })().catch(e => {
@@ -151,134 +100,146 @@ export class ServerGameDaemon {
 
   /** Handle any game-related document change that is not the game itself.
    * */
-  _handleGameDoc(doc: DbGame) {
-    (async () => {
-      if (doc.type === 'game-data') {
-        // Game data changed
-        if (doc.ended && !doc.ending || doc._deleted) {
-          this.deactivate();
+  async _handleGameDoc(doc: DbUser) {
+    await this._handleGameDocBeforeWatcher(doc);
+
+    // Our watcher runs the game - it cannot miss a change.  To accomodate for
+    // this, we run it after every non-aborted change.
+    const w = this._watcher;
+    if (w !== undefined) await w.triggerLoadOrChange(doc as DbGame);
+
+    // If we're a replicating GameDaemon, ensure all clients received the
+    // latest information before proceeding.
+    if (this._replications !== undefined && doc.type.startsWith('game-data')) {
+      await this._replicate(doc._id!);
+    }
+  }
+
+
+  async _handleGameDocBeforeWatcher(doc: DbUser) {
+
+    if (doc.type === 'game-data') {
+      // Game data changed
+      if (doc.ended && !doc.ending || doc._deleted) {
+        this.deactivate();
+        this.events.emit("delete");
+        return;
+      }
+
+      if (doc.ending) {
+        // replicate once to everyone, set ending to false.
+        if (!doc.ended) {
+          this._debug(`ended not set, but ending was?`);
+        }
+
+        if (this._replications === undefined) {
+          // Not the replicating GameDaemon.
           return;
         }
 
-        if (doc.ending) {
-          // replicate once to everyone, set ending to false.
-          if (!doc.ended) {
-            this._debug(`ended not set, but ending was?`);
-          }
+        await this._replicate(doc._id!);
 
-          let replications: number = 0;
-          const cb = () => {
-            replications -= 1;
-            if (replications === 0) {
-              (async () => {
-                // Unsetting 'ending' will deactivate ourselves and terminate
-                // all replications.
-                doc.ending = false;
-                const bulk: any[] = [doc];
-                if (doc.phase === 'staging') {
-                  doc._deleted = true;
+        // Unsetting 'ending' will deactivate ourselves and terminate
+        // all replications.
+        doc.ending = false;
+        const bulk: any[] = [doc];
+        if (doc.phase === 'staging') {
+          doc._deleted = true;
 
-                  const {docs} = await this._db.find({selector: {
-                    game: this._id}});
-                  for (const d of docs) {
-                    if (d._id === doc._id) continue;
-                    d._deleted = true;
-                    bulk.push(d);
-                  }
-                }
-                await this._db.bulkDocs(bulk);
-              })().catch(this._debug);
-            }
-          };
-          await this._activeInitialized;
-          // All replications should have been set up in the initial
-          // replication.
-          for (const u of doc.settings.players) {
-            if (u !== undefined &&
-                u.dbId !== undefined && u.status === 'joined') {
-              replications += 1;
-              const userDb = await this._dbResolver(u.dbId);
-              if (userDb === undefined) return;
-
-              const r = this._db.replicate.to(userDb,
-                {selector: {_id: {$eq: this._id}}});
-              r.on('complete', cb);
-            }
+          const {docs} = await this._db.find({selector: {
+            game: this._id}});
+          for (const d of docs) {
+            if (d._id === doc._id) continue;
+            d._deleted = true;
+            bulk.push(d);
           }
         }
-        else if (doc.phase === 'game') {
-          const {docs} = await this._db.find({selector: {game: this._id,
-            type: 'game-data-state'}});
-          if (docs.length !== 0) {
-            await this._watcherEnsureRunning();
-            return;
-          }
-
-          // Create sentinel action.
-          const actionFirst: DbUserActionDoc = {
-            type: 'game-data-action',
-            game: this._id,
-            actions: [
-              _PbemAction.create({
-                type: 'PbemAction.RoundEnd',
-                game: {},
-              } as PbemAction.Types.RoundEnd),
-            ],
-          };
-          const actionFirstResponse = await this._db.post(actionFirst);
-
-          // TODO pass this state to the watcher.
-          // NOTE - the _pbemWatcher plugin is NOT set at this point; if state
-          // were to be preserved, that would need to happen.  Preferably in
-          // an extensible manner.
-          const state = await _PbemState.create(doc.settings);
-
-          // Trick to get first PbemAction.RoundStart event to run triggers
-          // as normal rounds - start with round 0 ended!
-          state.roundEnded = true;
-
-          await this._db.post({
-            type: 'game-data-state',
-            game: this._id,
-            round: 0,
-            state: this._saveState(state),
-            actionPrev: actionFirstResponse.id,
-          });
-          await this._watcherEnsureRunning();
-        }
+        await this._db.bulkDocs(bulk);
       }
-      else if (doc.type === 'game-invitation') {
-        const gameLocal = (this._host.type === 'local');
-        const userLocal = (doc.userId.type === 'local');
-        if (gameLocal !== userLocal) {
-          throw new ServerError.ServerError(`User type does not match game`);
+      else if (doc.phase === 'game') {
+        const {docs} = await this._db.find({selector: {game: this._id,
+          type: 'game-data-state'}});
+        if (docs.length !== 0) {
+          // Initial state already open - don't worry if watcher is running or
+          // not, as this change alone is not sufficient to warm it up.
+          return;
         }
 
-        // Resolve the user database, make sure it exists, and find an
-        // up-to-date response to the invitation.  The invitation is cached
-        // locally, but replication cannot rely on that.
-        const userDb = await this._dbResolver(doc.userId);
-        if (userDb === undefined) throw new ServerError.ServerError(
-          `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
+        // Create sentinel action.
+        const actionFirst: DbUserActionDoc = {
+          _id: DbUserActionDoc.getId(this._id, 0),
+          type: 'game-data-action',
+          game: this._id,
+          actions: [
+            _PbemAction.create({
+              type: 'PbemAction.RoundEnd',
+              game: {},
+            } as PbemAction.Types.RoundEnd),
+          ],
+        };
 
-        await this._handleUserResponseUpdate(doc.userId, userDb, doc);
-        await this._handleSettingsCheck();
-      }
-      else if (doc.type === 'game-response-member') {
-        // These documents are replicated to our database as a special case,
-        // specifically to trigger this callback.  However, the latest
-        // information regarding this document always lives in the remote
-        // database.
-        const userDb = await this._dbResolver(doc.userId);
-        if (userDb === undefined) throw new ServerError.ServerError(
-          `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
+        // NOTE - the _pbemWatcher plugin is NOT set at this point; if state
+        // were to be preserved, that would need to happen.  Preferably in
+        // an extensible manner.
+        const state = await _PbemState.create(doc.settings);
 
-        await this._handleUserResponseUpdate(doc.userId, userDb, doc);
-        await this._handleSettingsCheck();
+        // Trick to get first PbemAction.RoundStart event to run triggers
+        // as normal rounds - start with round 0 ended!
+        state.roundEnded = true;
+
+        const stateFirst: DbGameStateDoc = {
+          _id: DbGameStateDoc.getId(this._id, 0),
+          type: 'game-data-state',
+          game: this._id,
+          round: 0,
+          state: this._saveState(state),
+          actionPrev: 0,
+        };
+        await this._db.bulkDocs([actionFirst as any, stateFirst]);
+
+        // The watcher MUST run for a minute, because on initialization it 
+        // checks if the round is ended, and if so, it starts the next round.
+        await this._watcherEnsureRunning();
       }
-    })().catch(e => {
-      this._debug(`Error for ${doc._id} / ${doc.type}: ${e}`);
-    });
+    }
+    else if (doc.type === 'game-invitation') {
+      const gameLocal = (this._host.type === 'local');
+      const userLocal = (doc.userId.type === 'local');
+      if (gameLocal !== userLocal) {
+        throw new ServerError.ServerError(`User type does not match game`);
+      }
+
+      // Resolve the user database, make sure it exists, and find an
+      // up-to-date response to the invitation.  The invitation is cached
+      // locally, but replication cannot rely on that.
+      const userDb = await this._dbResolver(doc.userId.id);
+      if (userDb === undefined) throw new ServerError.ServerError(
+        `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
+
+      await this._handleUserResponseUpdate(doc.userId, userDb, doc);
+      await this._handleSettingsCheck();
+    }
+    else if (doc.type === 'game-response-action') {
+      await this._watcherEnsureRunning();
+    }
+    else if (doc.type === 'game-response-member') {
+      // These documents are replicated to our database as a special case,
+      // specifically to trigger this callback.  However, the latest
+      // information regarding this document always lives in the remote
+      // database.
+      const gameLocal = (this._host.type === 'local');
+      const userLocal = (doc.userId.type === 'local');
+      if (gameLocal !== userLocal) {
+        throw new ServerError.ServerError(`User type does not match game`);
+      }
+
+      const userDb = await this._dbResolver(doc.userId.id);
+      if (userDb === undefined) throw new ServerError.ServerError(
+        `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
+
+      await this._handleUserResponseUpdate(doc.userId, userDb, doc);
+      await this._handleSettingsCheck();
+    }
   }
 
   /** Poll game settings.  Poll game-membership and
@@ -289,7 +250,42 @@ export class ServerGameDaemon {
    * TODO: should NOT change settings if game not in 'staging' state.
    * */
   async _handleSettingsCheck() {
-    const settings = await this._db.get(this._id) as DbGameDoc;
+    const settings = await this._db.get(this._id);
+    if (settings.type !== 'game-data') {
+      throw new ServerError.ServerError(`Not a game?  ${settings.type}`);
+    }
+
+    this._host = settings.host;
+
+    this._replications = undefined;
+    const contextIsLocal = this._context === 'local';
+    const hostIsLocal = settings.host.type === 'local';
+    if (contextIsLocal === hostIsLocal) {
+      // Set up replications - we're in the right spot
+      this._replications = [];
+      for (const u of settings.settings.players) {
+        if (u === undefined) continue;
+
+        const dbId = u.dbId as DbUserId | undefined;
+        if (dbId === undefined) continue;
+
+        const dbOther = this._dbResolver(dbId.id);
+        if (dbOther === undefined) {
+          throw new ServerError.ServerError("Bad user?");
+        }
+        this._replications.push(dbOther);
+      }
+    }
+    if (this._context === 'local') {
+      if (settings.host.type !== 'local') {
+        throw new ServerError.ServerError("Non-local game in local context?");
+      }
+    }
+    else {
+      if (settings.host.type === 'local') {
+        throw new ServerError.ServerError("Local game in non-local context?");
+      }
+    }
 
     const invites: DbUserGameInvitationDoc[] = (await this._db.find({selector: {
       type: 'game-invitation', game: this._id}})).docs as DbUserGameInvitationDoc[];
@@ -445,6 +441,7 @@ export class ServerGameDaemon {
       }
       else if (!docCause._deleted || docCause.type !== 'game-response-member') {
         // Go ahead with the invitation.
+        const d = await this._db.get(this._id);
         await userDb.post({
           type: 'game-response-member',
           userId: userId,
@@ -453,7 +450,7 @@ export class ServerGameDaemon {
             id: this._id,
           },
           game: this._id,
-          hostName: 'TODO',
+          hostName: (d as DbGameDoc).hostName,
           status: this._host.type === 'local' ? 'joined' : 'invited',
         });
       }
@@ -488,54 +485,37 @@ export class ServerGameDaemon {
         await this._handleUserLeave(userId, userDb);
       }
       else if (d.status === 'joined') {
+        // They've joined!  Replicate them up to date, then add them to sync list
+        const p = new Promise((resolve, reject) => {
+          const repl = this._db.replicate.to(userDb, {
+            selector: {
+              game: this._id,
+              type: {$regex: 'game-data.*'},
+            },
+          });
+          repl.on('complete', resolve);
+          repl.on('error', reject);
+        });
+        await p;
         this._handleReplication(userDb, true);
       }
     }
   }
 
   _handleReplication(userDb: PouchDB.Database<DbUser>, enable: boolean) {
-    // NOTE: this is NOT the userId!  This is the database name.
-    const uId = userDb.name;
-    if (uId === this._db.name) return;
+    if (this._replications === undefined) return;
 
-    if (!enable) {
-      const r = this._replications.get(uId);
-      if (r !== undefined) {
-        this._debug(`replication stop for ${uId}`);
-        this._replications.delete(uId);
-        for (const rr of r) rr.cancel();
+    const uid = this._replications.indexOf(userDb);
+    if (enable) {
+      if (uid === -1) {
+        this._replications.push(userDb);
       }
-      return;
     }
-
-    if (this._replications.has(uId)) return;
-
-    this._debug(`replication start for ${uId}, from ${this._db.name}`);
-    const back_off_function = (backoff: number) => {
-      if (backoff === 0) return 100;
-      return Math.min(60 * 1000, backoff * 2);
-    };
-    const r: [PouchDB.FindContinuousCancel, PouchDB.FindContinuousCancel] = [
-      this._db.replicate.to(userDb, {
-        selector: {
-          game: this._id,
-          type: {$regex: 'game-data.*'},
-        },
-        live: true,
-        retry: true,
-        back_off_function,
-      }),
-      this._db.replicate.from(userDb, {
-        selector: {
-          game: this._id,
-          type: {$regex: 'game-response.*'},
-        },
-        live: true,
-        retry: true,
-        back_off_function,
-      }),
-    ];
-    this._replications.set(uId, r);
+    else {
+      if (uid !== -1) {
+        this._replications.splice(uid, 1);
+      }
+    }
   }
 
   /** ALWAYS called after _handleReplication().
@@ -594,6 +574,26 @@ export class ServerGameDaemon {
       }
     }
   }
+
+
+  async _replicate(docId: string) {
+    if (this._replications === undefined) throw new ServerError.ServerError(
+        "Not a replicating GameDaemon");
+    
+    const promises = [];
+    for (const r of this._replications) {
+      const p = new Promise((resolve, reject) => {
+        const repl = this._db.replicate.to(r, {
+          doc_ids: [docId],
+        });
+        repl.on('complete', resolve);
+        repl.on('error', reject);
+      });
+      promises.push(p);
+    }
+    await Promise.all(promises);
+  }
+
 
   _saveState(state: any) {
     const s = Object.assign({}, state);

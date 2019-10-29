@@ -12,7 +12,8 @@
  * DbUserGameMembershipDoc.  Only forced via system though.
  * */
 
-import {_PbemSettings} from '../game';
+import {_PbemSettings, PbemError} from '../game';
+import { getDiffieHellman } from 'crypto';
 
 /** Document in game database. 
  * 
@@ -42,6 +43,8 @@ export type DbGameAddress = {
   id: string;
 };
 
+export type GamePhase = 'staging' | 'game' | 'game-over';
+
 export type DbUserIdsDoc = {
   _id: 'user-ids';
   _deleted?: boolean;
@@ -68,10 +71,12 @@ export interface DbGameDoc {
   type: 'game-data';
   // The host entity responsible for running this game.
   host: DbUserId;
+  // The name of the host entity
+  hostName: string;
   // The current phase of this game; always starts 'staging', 'game' means
   // in progress, and 'end' means that the game is immutable (finished).
   // 'ending' is a transient state meaning that all clients should be
-  phase: 'staging' | 'game' | 'game-over';
+  phase: GamePhase;
   // Signals that the game requires one final replication to clients, and then
   // it's over.  Appends '-ended' to the current phase when done.
   // NOTE: Game daemon still runs until 'ending' set to false.
@@ -93,8 +98,20 @@ export interface DbGameStateDoc {
   game: string;
   round: number;
   // Action preceding this game state.
-  actionPrev: string;
+  actionPrev: number;
   state: any;
+}
+export namespace DbGameStateDoc {
+  export function getId(gameId: string, actionPrevIndex: number) {
+    const s = '00000000' + actionPrevIndex;
+    if (s.length > 16) {
+      throw new PbemError(`Bad action index: ${actionPrevIndex}`);
+    }
+    return `${gameId}-s${s.substr(-8)}`;
+  }
+  export function getIdLast(gameId: string) {
+    return `${gameId}-s\ufff0`;
+  }
 }
 
 /** Prior to membership, remote users who are invited need to be notified.
@@ -146,6 +163,9 @@ export interface DbUserGameMembershipDoc {
   gameAddr: DbGameAddress;
   // Game ID for filtering - should match gameAddr.
   game: string;
+  // These two fields copied in gameDaemonController.ts
+  gamePhase?: GamePhase;
+  gameEnded?: boolean;
   // Host name, for displaying game in lobby.
   hostName: string;
   // Game description information, for rendering the name in a lobby, copied
@@ -168,11 +188,14 @@ export interface DbUserActionRequestDoc {
   type: 'game-response-action';
   game: string;  // Refer to GameMembershipDoc for full address.
   action: any;
-  // Previously requested action
-  prev: string;
+  // Previously requested action index
+  prev: number;
 }
 
 /** Indicates that an action has occurred (by any user).
+ * 
+ * Note that game-data-action has special _id field: the game name followed by
+ * '-' followed by the 0-leading, 8-digit action index.
  * */
 export interface DbUserActionDoc {
   _deleted?: boolean;
@@ -181,9 +204,22 @@ export interface DbUserActionDoc {
   game: string;
   // All actions in chain.
   actions: any[];
-  // Action preceding this one, if any
-  prev?: string;
   // Action request ID, if any
   request?: string;
 }
-
+export namespace DbUserActionDoc {
+  export function getId(gameId: string, actionIndex: number) {
+    const s = '00000000' + actionIndex;
+    if (s.length > 16) {
+      throw new PbemError(`Bad action index: ${actionIndex}`);
+    }
+    return `${gameId}-a${s.substr(-8)}`;
+  }
+  export function getIdFromDoc(doc: DbUserActionDoc) {
+    const parts = doc._id!.split('-a');
+    return parseInt(parts[1]);
+  }
+  export function getIdLast(gameId: string) {
+    return `${gameId}-a\ufff0`;
+  }
+}

@@ -325,7 +325,9 @@ export interface _PbemAction {
 }
 export type PbemActionWithDetails<Action extends _PbemAction> = PbemActionDetails & Action;
 export type PbemActionWithId<Action extends _PbemAction> = PbemActionDetails & Action & {
-  _id: string;
+  // Action IDs are strings when the action is requested, and a number once it is
+  // written in the queue.
+  _id: string | number;
 };
 
 export namespace _PbemAction {
@@ -468,8 +470,11 @@ export namespace PbemAction {
 
     /** Undo itself is considered an action, to give immutability to the 
      * action queue and prevent needing to overwrite "prev".
+     * 
+     * Note that Undo's `id` field is a string when undoing a requested action,
+     * consistent with `PbemActionWithId`.
      * */
-    export type Undo = PbemAction<'PbemAction.Undo', {id: string}>;
+    export type Undo = PbemAction<'PbemAction.Undo', {id: string | number}>;
     export const Undo: Hooks<_PbemState, Undo> = { 
       validate(state, undoAction) {
         const actionId = undoAction.game.id;

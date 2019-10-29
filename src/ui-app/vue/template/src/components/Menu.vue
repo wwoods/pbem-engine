@@ -8,10 +8,19 @@
         input(type="button" @click="userCreate(username)" value="Create")
     .pbem-login
       ul
-        li(v-for="user of users" @click="userLogin(user.localId)" :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}") {{user.name}}
+        li(v-for="user of users" @click="userLogin(user.localId)" 
+            :userId="user.localId"
+            :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}"
+            ) {{user.name}}
     .pbem-games
       ul
-        li(v-for="game of games" :gameId="game.game" @click="gameLoad(game.game)") {{gameName(game)}}
+        li(
+            v-for="game of games" 
+            :gameId="game.game"
+            @click="gameLoad(game.game)"
+            )
+            span {{gameName(game)}}
+            span(v-if="game.gameEnded") &nbsp;(Ended)
       span TODO: active games.
     .pbem-menu(v-if="$pbemServer.userLocalId")
       input(type="button" @click="createLocal()" value="Create local")
@@ -82,7 +91,8 @@ export default Vue.extend({
       const name = [];
       name.push(game.hostName);
       for (let i = 0, m = 3; i < m; i++) {
-        name.push(names[parseInt(game.game[i], 16)]);
+        // Game IDs prefixed with 'game'
+        name.push(names[parseInt(game.game[i + 4], 16)]);
       }
       return name.join(' ');
     },

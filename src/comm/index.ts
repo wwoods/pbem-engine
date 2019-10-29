@@ -19,7 +19,7 @@ import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
   DbUserId, DbUserIdsDoc} from '../server/db';
-import {ServerGameDaemon} from '../server/gameDaemon';
+import {ServerGameDaemonController} from '../server/gameDaemonController';
 import {GamePlayerWatcher} from '../server/gamePlayerWatcher';
 
 import {DbLocal, DbLocalUserDefinition, DbLocalUsersDoc, DbUser} from './db';
@@ -49,6 +49,7 @@ export class _ServerLink {
 
 
   // _local here refers to the locally-loaded game.
+  _localGameDb?: PouchDB.Database<DbGame>;
   _localGameId?: string;
   _localPlayerActive: number = -1;
   _localPlayerWatchers: Array<GamePlayerWatcher> = [];
@@ -59,6 +60,7 @@ export class _ServerLink {
   _userCurrent?: DbLocalUserDefinition;
   _usersLocal: DbLocalUserDefinition[] = [];
   _dbUsersLoggedIn = new Map<string, PouchDB.Database<DbUser>>();
+  _dbUsersRemoteSync = new Map<string, PouchDB.FindContinuousCancel>();
   // [Local user, local game] -> replication to other local user.
   _dbLocalReplications = new Map<string, Map<string, any>>();
   _$nextTick?: (cb: () => void) => void;
@@ -78,7 +80,7 @@ export class _ServerLink {
       return doc as DbLocalUsersDoc;
     });
     for (const u of this._usersLocal) {
-      await this._dbUserLocalEnsureLoaded(u.localId);
+      await this._dbUserLocalEnsureLoaded(u.localId, u.remoteDb);
     }
     if (loginUser !== undefined) {
       await this.userLogin(loginUser);
@@ -139,11 +141,12 @@ export class _ServerLink {
     }
 
     // Generate a hopefully-globally-unique, local user ID.
-    const userPlaceholder = await this._dbLocal.post({
-        type: 'user-local-placeholder'});
-    let userId: string = userPlaceholder.id;
+    let userId: string = 'user' + this._dbLocal.getUuid();
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       const users = this._usersLocal = doc.users!;
+      if (users.map(x => x.localId).indexOf(userId) !== -1) {
+        throw new Error(`User ID ${userId} in use?  Try again.`);
+      }
       if (users.map(x => x.name).indexOf(username) >= 0) {
         throw new Error(`Username '${username}' already in use.`);
       }
@@ -163,7 +166,7 @@ export class _ServerLink {
     if (u.length !== 1) throw new Error('No such user?');
 
     // Set current user database
-    await this._dbUserLocalEnsureLoaded(userIdLocal);
+    await this._dbUserLocalEnsureLoaded(userIdLocal, u[0].remoteDb);
     this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
     this._userCurrent = u[0];
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
@@ -210,6 +213,18 @@ export class _ServerLink {
     }
 
     this._localGameId = id;
+    if (game.host.type === 'local') {
+      // Run the game daemon locally
+      for (const [u, db] of this._dbUsersLoggedIn.entries()) {
+        const uId: DbUserId = {type: 'local', id: u};
+        if (this.dbIdMatches(uId, game.host)) {
+          this._localGameDb = db as PouchDB.Database<DbGame>;
+          ServerGameDaemonController.runForDb(
+              db, this._dbResolver.bind(this), 'local', game._id!);
+          break;
+        }
+      }
+    }
     this._localPlayerActive = 0;
     this._localPlayerWatchers = [];
     this.localPlayers = [];
@@ -258,6 +273,11 @@ export class _ServerLink {
   }
 
   gameUnload() {
+    if (this._localGameDb !== undefined) {
+      ServerGameDaemonController.runForDbCancelLocal(this._localGameDb!,
+          this._localGameId!);
+      this._localGameDb = undefined;
+    }
     this._localGameId = undefined;
     this._localPlayerActive = -1;
     for (const u of this._localPlayerWatchers) {
@@ -315,12 +335,23 @@ export class _ServerLink {
     } as DbUserId;
 
     // Create a stub document for _id / _rev.
-    const gameDocResp = await this._dbUserCurrent.post({} as any);
+    let gameDocResp: string;
+    while (true) {
+      gameDocResp = 'game' + this._dbUserCurrent.getUuid().substr(0, 8);
+      try {
+        await this._dbUserCurrent.get(gameDocResp);
+      }
+      catch (e) {
+        if (e.name !== 'not_found') throw e;
+        break;
+      }
+    }
     const gameDoc = {
-      _id: gameDocResp.id,
-      game: gameDocResp.id,
+      _id: gameDocResp,
+      game: gameDocResp,
       type: 'game-data',
       host: gameHost,
+      hostName: this._userCurrent!.name,
       createdBy: {
         type: 'local',
         id: this.userCurrent!.localId,
@@ -328,7 +359,6 @@ export class _ServerLink {
       phase: 'staging',
       settings: s,
     } as DbGameDoc;
-    (gameDoc as any)._rev = gameDocResp.rev;
     // The current user belongs to the new game.
     await this._dbUserCurrent.bulkDocs([
       gameDoc as any,
@@ -546,9 +576,18 @@ export class _ServerLink {
     }
   }
 
-  async _dbUserLocalEnsureLoaded(userIdLocal: string) {
+  _dbResolver(dbName: string) {
+    for (const u of this._usersLocal) {
+      if (u.localIdAll.indexOf(dbName) !== -1) {
+        return this._dbUsersLoggedIn.get(u.localId);
+      }
+    }
+    return undefined;
+  }
+
+  async _dbUserLocalEnsureLoaded(userIdLocal: string, userRemoteDb: string|undefined) {
     if (!this._dbUsersLoggedIn.has(userIdLocal)) {
-      this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(`user${userIdLocal}`));
+      this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(userIdLocal));
 
       // When we load a db, compact it, ensure indices exist
       const db = await this._dbUsersLoggedIn.get(userIdLocal)!;
@@ -559,8 +598,6 @@ export class _ServerLink {
       // this index should be ['type', 'game'].
       await db.createIndex({index: {fields: ['type']}});
       await db.createIndex({index: {fields: ['game']}});
-      // Index for traversing actions backward
-      await db.createIndex({index: {fields: ['next']}});
 
       // Local synchronization code.  More fancy, since it requires watching
       // changes.
@@ -582,109 +619,27 @@ export class _ServerLink {
 
       // Signal that this user db needs to be checked for changes.  Since local,
       // the service will not time out.
-      ServerGameDaemonController.runForDb(db, 'local');
-      TODO delete below?
-
-      TODO // change user ID to include "user", then DB name matches.
-
-      EACH // db responsible for pushing changes to necessary parties, and
-           //    running game daemons when needed.
-           // game responsible only for its own documents / progressing state
-
-      db.findContinuous(
-          {type: {$in: ['game-data', 'game-response-member', 'user-ids']}},
-        doc => {
-          const userLocal: DbUserId = {
-            type: 'local',
-            id: userIdLocal,
-          };
-
-          if (doc.type === 'user-ids') {
-            // user-ids: update player's current active ID, terminate games if
-            // changed.  Or rather, could terminate games...  TBD.
-            return;
-          }
-
-          // game-data: see if we're the host, if so, start a game listener
-          // which handles actions.
-          if (doc.type === 'game-data') {
-            if (doc.host.type !== 'local'
-                || !this.dbIdMatches(doc.host, userLocal)) {
-              return;
-            }
-
-            if (doc.ended && !doc.ending || doc._deleted) {
-              // If a daemon isn't started, it's OK, we don't need one.
-              // If one is started, it will catch this change on its own.
-              return;
-            }
-
-            ServerGameDaemonController.ensureRunning(
-              db.name,
-              dbResolver: userId => {
-                if (userId.type !== 'local') return undefined;
-
-                for (const u of this._usersLocal) {
-                  if (u.localIdAll.indexOf(userId.id) !== -1) {
-                    return this._dbUsersLoggedIn.get(u.localId);
-                  }
-                }
-                return undefined;
-              },
-            );
-            const d = new ServerGameDaemon(db as PouchDB.Database<DbGame>,
-                doc, {
-              localId: userIdLocal,
-              localActiveId: userIdLocalActive,
-              dbResolver: userId => {
-              },
-            });
-            d.events.on('delete', () => {
-              userGames.delete(d.id);
-            });
-            userGames.set(doc._id!, d);
-            return;
-          }
-
-          // game-response-member: see if we're the joiner, and if so,
-          // replicate this document to the host so they may begin
-          // bidirectional replication.
-          if (doc.type === 'game-response-member') {
-            if (!this.dbIdMatches(doc.userId, userLocal)
-                || doc.userId.type !== 'local'
-                || doc.userId.id === doc.gameAddr.host.id) {
-              return;
-            }
-
-            if (doc.gameAddr.host.type !== 'local') {
-              throw new ServerError.ServerError(`Game response ${doc._id} `
-                + `indicated a local game, but the game address was not `
-                + `local?`);
-            }
-            const targDb = this._dbUsersLoggedIn.get(doc.gameAddr.host.id);
-            if (targDb !== undefined && targDb !== db) {
-              // If target DB is our DB, the game daemon will handle it.
-              const repl = db.replicate.to(targDb, {
-                doc_ids: [doc._id!],
-              });
-              if (['invited', 'joined'].indexOf(doc.status) === -1) {
-                repl.on('complete', () => {
-                  // We want to delete the document after it's been replicated
-                  // to the game host.
-                  doc._deleted = true;
-                  db.put(doc);
-                });
-              }
-            }
-            return;
-          }
-
-          throw new ServerError.ServerError(`Cannot handle ${doc.type}`);
-        });
-
-      // TODO: remote sync code (only this user <-> remote user, nothing too
-      // fancy).
+      ServerGameDaemonController.runForDb(db, this._dbResolver.bind(this),
+          'local', undefined);
     }
+
+    // Re-do remote sync, if applicable.
+    {
+      const sync = this._dbUsersRemoteSync.get(userIdLocal);
+      if (sync !== undefined) {
+        sync.cancel();
+        this._dbUsersRemoteSync.delete(userIdLocal);
+      }
+    }
+    if (userRemoteDb !== undefined) {
+      const sync = this._dbUsersLoggedIn.get(userIdLocal)!.sync(userRemoteDb, {
+        live: true,
+        retry: true,
+      });
+      this._dbUsersRemoteSync.set(userIdLocal, sync);
+    }
+    // TODO: remote sync code (only this user <-> remote user, nothing too
+    // fancy).
   }
 
   async _stagingCreateSettings<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<Settings> {

@@ -26,5 +26,7 @@ export type DbLocalUserDefinition = {
   remoteId?: string;
   // The user's unique remote name.
   remoteName?: string;
+  // The user's remote database connection string.
+  remoteDb?: string;
 };
 

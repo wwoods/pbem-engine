@@ -9,6 +9,8 @@ declare var performance: any;
 if (typeof performance === 'undefined') {
   performance = undefined;
 }
+declare var window: any;
+window.PouchDb = PouchDb;
 PouchDb.plugin(<PouchDB.Plugin><any>{
   /** Calls callback with both current versions (EXCLUDING DELETED!) and
    * changes-versions (INCLUDING DELETED!) of the given selector.

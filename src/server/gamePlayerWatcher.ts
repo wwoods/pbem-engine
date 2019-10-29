@@ -25,7 +25,7 @@ export class GamePlayerWatcher {
   }>();
 
   get isTurnEnded() {
-    if (this._actions[this._actions.length - 1] === this._actionCurrent
+    if (this._actionLatest === this._actionCurrent
         && this._state.turnEnded[this._playerIdx]) {
       return true;
     }
@@ -49,14 +49,13 @@ export class GamePlayerWatcher {
   // Player index (-1 for system)
   _playerIdx: number;
 
-  // List of past / future actions.  Treat as local cache.
-  _actions: string[] = [];
-  _actionCurrent!: string;
+  _actionCurrent!: number;
+  _actionLatest!: number;
   // Mapping between request doc _id and game-data-action _id
-  _actionRequestNewIds: {[key: string]: string} = {};
+  _actionRequestNewIds: {[key: string]: number} = {};
   // Cache of all loaded / played / previewed actions...  Note that request
   // docs are inappropriate, as they do not allow for rollback/forward.
-  _actionCache: {[key: string]: DbUserActionDoc} = {};
+  _actionCache: {[key: number]: DbUserActionDoc} = {};
 
   // State, if loaded in any other phase
   _state!: _PbemState;
@@ -85,12 +84,14 @@ export class GamePlayerWatcher {
       throw new ServerError.ServerError("Init() called twice?");
     }
 
-    const {docs} = await this._db.find({
-      selector: {game: this._gameId, type: 'game-data-state'},
-      // Until multi-index bug is fixed, cannot make an index with round.
-      //sort: [{round: 'desc'}],
-      //limit: 1,
+    const {rows} = await this._db.allDocs({
+      include_docs: true,
+      startkey: DbGameStateDoc.getIdLast(this._gameId),
+      endkey: DbGameStateDoc.getId(this._gameId, 0),
+      descending: true,
+      limit: 1,
     });
+    const docs = rows.map(x => x.doc);
 
     if (docs.length === 0) throw new ServerError.NoSuchGameError(this._gameId);
     (docs as any).sort((a: DbGameStateDoc, b: DbGameStateDoc) => b.round - a.round);
@@ -98,7 +99,6 @@ export class GamePlayerWatcher {
     const doc = docs[0] as DbGameStateDoc;
     const s = this._state = doc.state;
     this._actionCurrent = doc.actionPrev;
-    this._actions = [doc.actionPrev];
 
     // Load plugins
     if (_GameHooks.State!.plugins) {
@@ -113,34 +113,39 @@ export class GamePlayerWatcher {
     }
     s.plugins._pbemWatcher = this;
 
+    // Start collecting changes; those which occur before we unset 
+    // this._initQueue will be buffered, which is OK.
+    if (!this._options.noContinuous) {
+      const c = this._findCancel = this._db.changes({
+        since: 'now',
+        live: true,
+        include_docs: true,
+        selector: {game: this._gameId},
+      });
+      c.on('change', (change: any) => {
+        this.triggerLoadOrChange(change.doc as DbGame);
+      });
+    }
+
+    // Sets this._actionLatest
     await this._actionLoadLatest();
 
     const queue = this._initQueue!;
     delete this._initQueue;
 
     if (this._playerIdx === -1) {
+      // Immediate check for previously pending actions
       this._gameCheckNextAction();
     }
     this._debug('Initialized OK');
 
-    if (this._options.noContinuous) {
-      for (const d of queue) {
-        this.triggerLoadOrChange(d);
-      }
-      return;
+    for (const d of queue) {
+      this.triggerLoadOrChange(d);
     }
-    this._findCancel = this._db.findContinuous(
-        {game: this._gameId},
-        doc => {
-          this.triggerLoadOrChange(doc);
-        },
-        noMatches => {
-        },
-    );
   }
 
   async action(actionBase: _PbemAction) {
-    const aprev = this._actions[this._actions.length - 1];
+    const aprev = this._actionLatest;
     if (this._actionCurrent !== aprev) {
       throw new ServerError.ServerError("Looking at the past, cannot act");
     }
@@ -200,22 +205,16 @@ export class GamePlayerWatcher {
     }
   }
 
+
   /** Fetch actions performed by the current player during this round, which
    * have not been undone.
    * */
   getRoundPlayerActions(allPlayers?: boolean): PbemActionWithId<_PbemAction>[] {
-    const actionDocs = this._actions.map(a => this._actionCache[a]);
-
     // Always fetch actions from perspective of current action.
-    let i = this._actions.indexOf(this._actionCurrent);
-    if (i === -1) {
-      this._debug(`Bad current action?  getRoundPlayerActions()`);
-      return [];
-    }
-
+    let i = this._actionCurrent;
     const r: PbemActionWithId<_PbemAction>[] = [];
     while (i >= 0) {
-      const aDoc = actionDocs[i];
+      const aDoc = this._actionCache[i];
       const a = aDoc.actions[0]! as PbemActionWithDetails<_PbemAction>;
       if (a.type === 'PbemAction.RoundStart' || a.type === 'PbemAction.GameEnd') {
         break;
@@ -227,7 +226,11 @@ export class GamePlayerWatcher {
       }
 
       if (allPlayers || a.playerOrigin === this._playerIdx) {
-        const b = Object.assign({_id: aDoc._id!}, a);
+        const id = aDoc.type === 'game-data-action' 
+            ? i
+            : aDoc._id!
+            ;
+        const b = Object.assign({_id: id}, a);
         r.unshift(b);
       }
       i -= 1;
@@ -256,75 +259,46 @@ export class GamePlayerWatcher {
     else if (doc.type === 'game-data-action') {
       // Confirmed action to be added to queue.  See if we need to run this 
       // action.
-      const currentIdx = this._actions.indexOf(doc._id!);
-      if (currentIdx !== -1) {
-        /* NO chance "prev" changed, as we now use an immutable action queue. 
-        // Already catalogued.  There's a chance that "prev" changed.
-        if (this._actionCache.hasOwnProperty(doc._id!)) {
-          const docOld = this._actionCache[doc._id!];
-          if (docOld.prev !== doc.prev) {
-            throw new ServerError.ServerError("Not implemented: was todo");
-          }
-        }
-        if (doc.prev !== undefined && currentIdx > 0
-            && doc.prev !== this._actions[currentIdx - 1]) {
-          throw new ServerError.ServerError("Not Implemented: todo better test");
-        }*/
-        this._actionCache[doc._id!] = doc;
-        return;
-      }
+      const actionId = DbUserActionDoc.getIdFromDoc(doc);
+      const upToDate = this._actionCurrent === this._actionLatest;
+      this._actionLatest = Math.max(this._actionLatest, actionId);
 
-      if (doc.prev === undefined) {
-        // Must be first event.  Safe to ignore, as any state would involve
-        // loading at least this state.
-        return;
-      }
-
-      // Overwrite cache.
-      this._actionCache[doc._id!] = doc;
+      this._actionCache[actionId] = doc;
 
       const actionCurrent = this._actionCurrent;
       if (doc.request !== undefined) {
-        this._actionRequestNewIds[doc.request] = doc._id!;
-        const rid = this._actions.indexOf(doc.request);
-        if (rid !== -1) {
-          // Request can be deleted; was it enacted as-is?
-          if (doc.prev === this._actions[rid - 1]) {
-            if (this._actionCurrent === doc.request) {
-              this._actionCurrent = doc._id!;
-            }
-            return;
-          }
+        this._actionRequestNewIds[doc.request] = actionId;
+        
+        // Request can be deleted; was it enacted as-is?
+        // TODO
 
-          // Out of order... rollback?
-          const a = this._actions.indexOf(actionCurrent);
-          if (a > rid) {
-            // Rollback / commit the removal of this request
-            this._actionRollback(this._actions[rid - 1]);
-            this._actions.splice(rid, 1);
-          }
+        // Out of order... rollback?
+        if (this._actionCurrent > actionId) {
+          throw new ServerError.ServerError("Not implemented");
+          // Needs to splice action requests, potentially rewrite all requested
+          // action indices.
+          this._actionRollback(actionId - 1);
         }
       }
 
-      const u = this._actions.indexOf(doc.prev);
-      if (u === -1) {
-        // We have no point of reference for this action.  
-        this._debug(`Ok to ignore action ${doc._id}?`);
-        this._actionRollforward(actionCurrent);
+      if (actionId < actionCurrent) {
+        // Ignore.
         return;
       }
 
-      this._actions.splice(u+1, 0, doc._id!);
-      // Restore previous action
-      this._actionRollforward(actionCurrent);
-      if (this._actionCurrent === doc.prev) {
-        this._actionRollforward(doc._id!);
+      // Restore previous / current action
+      if (upToDate) {
+        this._actionRollforward(actionId);
+      }
+      else {
+        this._actionRollforward(actionCurrent);
       }
     }
     else if (doc.type === 'game-response-action') {
       // Requested action...
       if (this._actionRequestNewIds[doc._id!] !== undefined) {
-        // This request was turned into a real action, which has priority.
+        // This request was already turned into a real action, which has 
+        // priority.
         return;
       }
 
@@ -346,103 +320,73 @@ export class GamePlayerWatcher {
    * Should also load back to RoundEnd.
    */
   async _actionLoadLatest() {
-    for (const a of this._actions) {
-      if (!this._actionCache.hasOwnProperty(a)) {
-        // TODO what about requests???
-        this._actionCache[a] = await this._db.get(a);
-      }
-    }
+    this._actionLatest = this._actionCurrent;
 
-    while (true) {
-      const a = this._actions[this._actions.length - 1];
-      const {docs} = await this._db.find({selector: {game: this._gameId,
-          prev: a, type: 'game-data-action'}});
-
-      if (docs.length === 0) {
-        // No further actions; abort
-        break;
+    const currentDocs = await this._db.allDocs({
+      startkey: DbUserActionDoc.getId(this._gameId, this._actionCurrent),
+      endkey: DbUserActionDoc.getIdLast(this._gameId),
+      include_docs: true,
+    });
+    for (const a of currentDocs.rows) {
+      const d = a.doc! as DbUserActionDoc;
+      if (d.type !== 'game-data-action') {
+        this._debug(`Error: ${d._id} had type ${d.type}`);
       }
-
-      if (docs.length !== 1) {
-        // When loading a chain, the only way this should happen is if prev
-        // got overwritten...
-        this._debug(`bad condition, multiple docs for ${a}`);
-      }
-
-      const d = docs[0];
-      if (d.type === 'game-data-action') {
-        this._actions.push(d._id);
-        this._actionCache[d._id] = d;
-      }
-      else if (d.type === 'game-response-action') {
-        //TODO
-      }
-      else {
-        this._debug(`Bad follow doc? ${d.type} / ${d._id}`);
-      }
+      const aId = DbUserActionDoc.getIdFromDoc(d);
+      this._actionCache[aId] = d;
+      this._actionLatest = Math.max(this._actionLatest, aId);
     }
 
     // Find earliest RoundEnd, if this._actions[0] is not a round start
-    let firstAction = this._actionCache[this._actions[0]];
-    while (firstAction.actions[0].type !== 'PbemAction.RoundEnd') {
-      if (firstAction.prev === undefined) {
-        this._debug(`No first action which is 'PbemAction.RoundEnd'?`);
+    let firstAction = this._actionCurrent;
+    while (this._actionCache[firstAction].actions[0].type !== 'PbemAction.RoundEnd') {
+      if (firstAction === 0) {
+        this._debug(`Error: no first action which is 'PbemAction.RoundEnd'?`);
         break;
       }
-      const prevAction: DbUserActionDoc = await this._db.get(firstAction.prev);
-      this._actions.unshift(prevAction._id!);
-      this._actionCache[prevAction._id!] = prevAction;
-      firstAction = prevAction;
+
+      firstAction -= 1;
+      const prevAction: DbUserActionDoc = await this._db.get(
+        DbUserActionDoc.getId(this._gameId, firstAction));
+      this._actionCache[firstAction] = prevAction;
     }
 
     // Go to latest action.
-    this._actionRollforward(this._actions[this._actions.length - 1]);
+    this._actionRollforward(this._actionLatest);
   }
 
 
   /** Rewind cached actions without validating */
-  _actionRollback(id: string) {
-    const curId = this._actions.indexOf(this._actionCurrent);
-    const targId = this._actions.indexOf(id);
-
-    if (curId === -1) throw new ServerError.ServerError("Bad _actionCurrent?");
-    if (targId === -1) throw new ServerError.ServerError("Bad target id?");
-
-    if (curId < targId) throw new ServerError.ServerError("Should be rollforward?");
+  _actionRollback(id: number) {
+    if (this._actionCurrent < id) throw new ServerError.ServerError(
+        "Should be rollforward?");
 
     const state = this._state;
-    for (let i = curId-1; i >= targId; i--) {
-      const aId = this._actions[i];
-      const aDoc = this._actionCache[aId];
+    for (let i = this._actionCurrent-1; i >= id; i--) {
+      const aDoc = this._actionCache[i];
       for (let i = aDoc.actions.length - 1; i >= 0; i--) {
         const a = aDoc.actions[i];
         const hooks = _PbemAction.resolve(a.type);
         hooks.backward(state, a);
       }
-      this._actionCurrent = aId;
+      this._actionCurrent = i;
     }
   }
 
 
   /** Commit cached actions without validating */
-  _actionRollforward(id: string) {
-    const curId = this._actions.indexOf(this._actionCurrent);
-    const targId = this._actions.indexOf(id);
-
-    if (curId === -1) throw new ServerError.ServerError("Bad _actionCurrent?");
-    if (targId === -1) throw new ServerError.ServerError("Bad target id?");
-
-    if (curId > targId) throw new ServerError.ServerError("Should be rollback?");
+  _actionRollforward(id: number) {
+    if (this._actionCurrent > id) throw new ServerError.ServerError(
+        "Should be rollback?");
 
     const state = this._state;
-    for (let i = curId+1; i <= targId; i++) {
-      const aId = this._actions[i];
-      const aDoc = this._actionCache[aId];
+    for (let i = this._actionCurrent+1; i <= id; i++) {
+      const aDoc = this._actionCache[i];
       for (const a of aDoc.actions) {
         const hooks = _PbemAction.resolve(a.type);
         hooks.forward(state, a);
       }
-      this._actionCurrent = aId;
+      this._actionCurrent = i;
     }
 
     if (this.isTurnEnded) {
@@ -470,6 +414,10 @@ export class GamePlayerWatcher {
    * setup() functions. */
   async _actionValidateAndRunWithTriggersAndCommit(
       action: PbemActionWithDetails<_PbemAction>, requestId?: string) {
+    if (this._actionCurrent !== this._actionLatest) {
+      throw new ServerError.ServerError("Cannot run an action when viewing "
+          + "the past.");
+    }
     const ag: PbemActionWithDetails<_PbemAction>[] = this._actionGroup = [];
     const aprev = this._actionCurrent;
     const state = this._state;
@@ -500,21 +448,20 @@ export class GamePlayerWatcher {
     // ag now contains all actions in chain; post the chain AFTER adding the
     // event to our queue so it doesn't get executed twice.
     this._actionGroup = undefined;
-    const actionId = this._db.getUuid();
-    this._actions.push(actionId);
-    this._actionCurrent = actionId;
+    const actionSeq = aprev + 1;
+    const actionId = DbUserActionDoc.getId(this._gameId, actionSeq);
+    this._actionCurrent = this._actionLatest = actionSeq;
     const actionDoc: DbUserActionDoc = {
       _id: actionId,
       type: 'game-data-action',
       game: this._gameId,
       actions: ag,
-      prev: aprev,
     };
     if (requestId !== undefined) {
       actionDoc.request = requestId;
-      this._actionRequestNewIds[requestId] = actionId;
+      this._actionRequestNewIds[requestId] = actionSeq;
     }
-    this._actionCache[actionId] = actionDoc;
+    this._actionCache[actionSeq] = actionDoc;
 
     // Note that this next part is asynchronous, and so should be after local
     // variable modifications.
@@ -607,9 +554,7 @@ export class GamePlayerWatcher {
       const prev = x.prev;
       const prevMapped = this._actionRequestNewIds[prev];
       const prevId = prevMapped !== undefined ? prevMapped : prev;
-      const u = this._actions.indexOf(prevId);
-      if (u === -1) return 1e300;
-      return [u, x];
+      return [prevId, x];
     }).sort();
 
     const doc = docs[0];
