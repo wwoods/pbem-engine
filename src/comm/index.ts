@@ -80,7 +80,7 @@ export class _ServerLink {
       return doc as DbLocalUsersDoc;
     });
     for (const u of this._usersLocal) {
-      await this._dbUserLocalEnsureLoaded(u.localId, u.remoteDb);
+      await this._dbUserLocalEnsureLoaded(u.localId, u.remoteToken, u.remoteDb);
     }
     if (loginUser !== undefined) {
       await this.userLogin(loginUser);
@@ -166,13 +166,45 @@ export class _ServerLink {
     if (u.length !== 1) throw new Error('No such user?');
 
     // Set current user database
-    await this._dbUserLocalEnsureLoaded(userIdLocal, u[0].remoteDb);
+    await this._dbUserLocalEnsureLoaded(userIdLocal, u[0].remoteToken, 
+        u[0].remoteDb);
     this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
     this._userCurrent = u[0];
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.userLoginLatestId = userIdLocal;
       return doc as DbLocalUsersDoc;
     });
+  }
+
+  /** On successful login, user gets an API token for validating requests as
+   * well as a connection string for this user's db.  Save those.
+   * */
+  async userCurrentSetLogin(token: string | undefined, db: string | undefined) {
+    const users = (await this._dbLocal.get('users')) as DbLocalUsersDoc;
+    if (users === undefined) throw new ServerError.ServerError("No users?");
+
+    for (const d of users.users) {
+      if (d.localId !== this._userCurrent!.localId) continue;
+      d.remoteToken = token;
+      d.remoteDb = db;
+    }
+
+    await this._dbLocal.put(users);
+  }
+
+
+  /** On registration, user gets a unique ID + username. */
+  async userCurrentSetRemote(userId: string, userName: string) {
+    const users = (await this._dbLocal.get('users')) as DbLocalUsersDoc;
+    if (users === undefined) throw new ServerError.ServerError("No users?");
+
+    for (const d of users.users) {
+      if (d.localId !== this._userCurrent!.localId) continue;
+      d.remoteId = userId;
+      d.remoteName = userName;
+    }
+
+    await this._dbLocal.put(users);
   }
 
   /** List all local users.
@@ -370,7 +402,7 @@ export class _ServerLink {
           id: gameDoc._id!,
         },
         game: gameDoc._id!,
-        hostName: this.userCurrent!.remoteName || this.userCurrent!.name,
+        hostName: gameDoc.hostName,
         status: 'joined',
       } as DbUserGameMembershipDoc,
     ]);
@@ -586,7 +618,8 @@ export class _ServerLink {
     return undefined;
   }
 
-  async _dbUserLocalEnsureLoaded(userIdLocal: string, userRemoteDb: string|undefined) {
+  async _dbUserLocalEnsureLoaded(userIdLocal: string, userRemoteToken: string|undefined,
+      userRemoteDb: string|undefined) {
     if (!this._dbUsersLoggedIn.has(userIdLocal)) {
       this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(userIdLocal));
 
@@ -632,8 +665,11 @@ export class _ServerLink {
         this._dbUsersRemoteSync.delete(userIdLocal);
       }
     }
-    if (userRemoteDb !== undefined) {
-      const sync = this._dbUsersLoggedIn.get(userIdLocal)!.sync(userRemoteDb, {
+    if (userRemoteToken !== undefined && userRemoteDb !== undefined) {
+      const noScheme = location.origin.split('//');
+      const dbUrl = [noScheme[0], '//', userRemoteToken, '@', 
+          noScheme.splice(1).join('//'), '/db', userRemoteDb].join('');
+      const sync = this._dbUsersLoggedIn.get(userIdLocal)!.sync(dbUrl, {
         live: true,
         retry: true,
       });

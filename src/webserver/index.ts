@@ -8,9 +8,10 @@ import process from 'process';
 
 import bodyParser from 'body-parser';
 import express from 'express';
+import expressMung from 'express-mung';
 import http from 'http';
 import request from 'request';
-import SuperLogin from 'superlogin';
+import SuperLogin from '@wwoods/superlogin';
 
 export async function run(webAppCompiled: string, dbPath: string | undefined) {
   let app = express();
@@ -19,6 +20,7 @@ export async function run(webAppCompiled: string, dbPath: string | undefined) {
   // The application needs an easy way to refer to the remote database.  To
   // enable this, we route it next to the application.
   const db = dbPath !== undefined ? dbPath : 'http://localhost:5984';
+  const dbNoProtocol = db.split('//').splice(1).join('//');
   const dbRegex = /^\/db(.*)$/;
   app.use((req: any, res: any, next: any) => {
     const proxyPath = req.path.match(dbRegex);
@@ -46,6 +48,9 @@ export async function run(webAppCompiled: string, dbPath: string | undefined) {
       userDB: 'sl-users',
       couchAuthDB: '_users',
     },
+    testMode: {
+      noEmail: true,
+    },
     mailer: {
     },
     userDBs: {
@@ -56,6 +61,19 @@ export async function run(webAppCompiled: string, dbPath: string | undefined) {
   };
 
   let superLogin = new SuperLogin(config);
+  app.use('/auth/login', expressMung.json((body, req, res) => {
+    const b = body as any;
+    if (res.statusCode === 200) {
+      // Overwrite DB with appropriate, routed path.
+      for (const dbName of Object.keys(b.userDBs)) {
+        let db = b.userDBs[dbName];
+        const splitter = '@' + dbNoProtocol;
+        db = db.split(splitter).splice(1).join(splitter);
+        b.userDBs[dbName] = db;
+      }
+    }
+    return b;
+  }));
   app.use('/auth', superLogin.router);
 
   app.use(express.static(webAppCompiled));

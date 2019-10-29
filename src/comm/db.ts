@@ -26,7 +26,11 @@ export type DbLocalUserDefinition = {
   remoteId?: string;
   // The user's unique remote name.
   remoteName?: string;
-  // The user's remote database connection string.
+  // The user's remote database connection string.  This value is unset when
+  // the user is logged out.  Therefore, if it is set, they are logged in.
   remoteDb?: string;
+  // The user's remote token:password, used for verifying that the session is
+  // still active.
+  remoteToken?: string;
 };
 

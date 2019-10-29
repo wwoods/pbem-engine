@@ -29,8 +29,8 @@ namespace DaemonStatus {
   }
 }
 
-const heartbeat = 300;
-const timeout = heartbeat * 3;
+const heartbeat = 700;
+const timeout = heartbeat * 2.5;
 const backoff = 10;
 
 const archiveGamesToKeep = 3;

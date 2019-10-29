@@ -77,9 +77,28 @@ export const _pbemServer = {
   get readyEvent() {
     return ServerLink.readyEvent;
   },
+  get userCurrent() {
+    return ServerLink.userCurrent;
+  },
+  async userCurrentSetLogin(token: string | undefined, db: string | undefined) {
+    return await ServerLink.userCurrentSetLogin(token, db);
+  },
+  async userCurrentSetRemote(username: string) {
+    return await ServerLink.userCurrentSetRemote(username, username);
+  },
   get userLocalId() {
     const u = ServerLink.userCurrent;
     return u && u.localId;
+  },
+  /** Used to poll for account created */
+  get userRemoteName() {
+    const u = ServerLink.userCurrent;
+    return u && u.remoteName;
+  },
+  /** Used to poll for active session */
+  get userRemoteToken() {
+    const u = ServerLink.userCurrent;
+    return u && u.remoteToken;
   },
   async userCreate(username: string) {
     return await ServerLink.userCreate(username);

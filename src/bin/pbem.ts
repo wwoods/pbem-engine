@@ -135,10 +135,19 @@ program
 program
   .command('run')
   .description('run the game in production mode.')
+  .option('--clean', 'do not re-use existing build')
   .action((cmd: any) => {
     const cfg = './pbem-config.json';
     assert(fs.existsSync(cfg), `No such file: ${cfg}`);
     const config = JSON.parse(fs.readFileSync(cfg));
+
+    if (cmd.opts().clean) {
+      console.log("Cleaning...");
+      rimraf.sync(pbem_client_folder);
+    }
+
+    const vue = require('../ui-app/vue/index');
+    vue.setup(pbem_client_folder, config);
 
     // https://docs.couchdb.org/en/2.1.2/best-practices/nginx.html#reverse-proxying-couchdb-in-a-subdirectory-with-nginx
     for (const g of _gameFilesGetPaths()) {
