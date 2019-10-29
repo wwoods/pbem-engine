@@ -3,8 +3,8 @@ import createDebug from 'debug';
 import {EventEmitter} from 'tsee';
 
 import {_GameHooks, _PbemAction, _PbemState, PbemActionWithDetails, 
-  PbemActionWithId, PbemPlugin, PbemServerView} from '../game';
-import {ServerError} from '../server/common';
+  PbemActionWithId, PbemPlugin, PbemServerView, PbemAction} from '../game';
+import {ServerError, sleep} from '../server/common';
 import {DbGame, DbUserActionRequestDoc, DbUserActionDoc, DbGameDoc,
     DbGameStateDoc} from '../server/db';
 
@@ -84,21 +84,36 @@ export class GamePlayerWatcher {
       throw new ServerError.ServerError("Init() called twice?");
     }
 
-    const {rows} = await this._db.allDocs({
-      include_docs: true,
-      startkey: DbGameStateDoc.getIdLast(this._gameId),
-      endkey: DbGameStateDoc.getId(this._gameId, 0),
-      descending: true,
-      limit: 1,
-    });
-    const docs = rows.map(x => x.doc);
+    let doc: DbGameStateDoc;
+    let retries = 10;
+    while (true) {
+      const {rows} = await this._db.allDocs({
+        include_docs: true,
+        startkey: DbGameStateDoc.getIdLast(this._gameId),
+        endkey: DbGameStateDoc.getId(this._gameId, 0),
+        descending: true,
+        limit: 1,
+      });
+      const docs = rows.map(x => x.doc);
 
-    if (docs.length === 0) throw new ServerError.NoSuchGameError(this._gameId);
-    (docs as any).sort((a: DbGameStateDoc, b: DbGameStateDoc) => b.round - a.round);
+      if (docs.length === 0) {
+        if (this._playerIdx !== -1) {
+          retries -= 1;
+          if (retries > 0) {
+            await sleep(300);
+            continue;
+          }
+        }
+        throw new ServerError.NoSuchGameError(this._gameId);
+      }
+      (docs as any).sort((a: DbGameStateDoc, b: DbGameStateDoc) => b.round - a.round);
 
-    const doc = docs[0] as DbGameStateDoc;
+      doc = docs[0] as DbGameStateDoc;
+      break;
+    }
+
     const s = this._state = doc.state;
-    this._actionCurrent = doc.actionPrev;
+    this._actionCurrent = doc.actionNext - 1;
 
     // Load plugins
     if (_GameHooks.State!.plugins) {
@@ -127,7 +142,7 @@ export class GamePlayerWatcher {
       });
     }
 
-    // Sets this._actionLatest
+    // Sets this._actionLatest, creates first RoundStart event if none existing.
     await this._actionLoadLatest();
 
     const queue = this._initQueue!;
@@ -315,15 +330,17 @@ export class GamePlayerWatcher {
   }
 
 
-  /** Load those in "_actions" and future actions.
+  /** Load those in "_actions" and future actions. 
    * 
-   * Should also load back to RoundEnd.
+   * Should also load back to RoundStart.  Creates first RoundStart if it does
+   * not exist.
    */
   async _actionLoadLatest() {
     this._actionLatest = this._actionCurrent;
 
+    const firstDoc = Math.max(0, this._actionCurrent);
     const currentDocs = await this._db.allDocs({
-      startkey: DbUserActionDoc.getId(this._gameId, this._actionCurrent),
+      startkey: DbUserActionDoc.getId(this._gameId, firstDoc),
       endkey: DbUserActionDoc.getIdLast(this._gameId),
       include_docs: true,
     });
@@ -337,11 +354,28 @@ export class GamePlayerWatcher {
       this._actionLatest = Math.max(this._actionLatest, aId);
     }
 
-    // Find earliest RoundEnd, if this._actions[0] is not a round start
-    let firstAction = this._actionCurrent;
-    while (this._actionCache[firstAction].actions[0].type !== 'PbemAction.RoundEnd') {
-      if (firstAction === 0) {
-        this._debug(`Error: no first action which is 'PbemAction.RoundEnd'?`);
+    // Find earliest RoundStart
+    let firstAction = firstDoc;
+    while (true) {
+      const ac = this._actionCache[firstAction];
+      if (ac !== undefined && ac.actions[0].type === 'PbemAction.RoundStart') {
+        break;
+      }
+      else if (firstAction === 0) {
+        if (this._playerIdx === -1) {
+          // No available RoundStart; make one
+          if (this._actionCurrent !== -1) {
+            throw new ServerError.ServerError("Not first step, but no RoundStart?");
+          }
+
+          await this._actionValidateAndRunWithTriggersAndCommit(
+            {
+              type: 'PbemAction.RoundStart',
+              playerOrigin: -1,
+              game: {},
+            } as PbemActionWithDetails<PbemAction.Types.RoundStart>);
+          this._debug(`Error: no first action which is 'PbemAction.RoundStart'?`);
+        }
         break;
       }
 
@@ -508,7 +542,7 @@ export class GamePlayerWatcher {
     }
 
     // First check for round start / end.
-    if (!this._state.roundEnded) {
+    {
       // Check for round end
       let allDone = true;
       const p = this._state.settings.players;
@@ -519,22 +553,12 @@ export class GamePlayerWatcher {
       if (allDone) {
         // All ready - advance round.
         await this._actionValidateAndRunWithTriggersAndCommit({
-          type: 'PbemAction.RoundEnd',
+          type: 'PbemAction.RoundStart',
           playerOrigin: -1,
           game: {},
         });
         return true;
       }
-    }
-    else {
-      // Round was ended; we should be only one attempting to start.  Start
-      // a new round!
-      await this._actionValidateAndRunWithTriggersAndCommit({
-        type: 'PbemAction.RoundStart',
-        playerOrigin: -1,
-        game: {},
-      });
-      return true;
     }
 
     // Now check if there was an action request

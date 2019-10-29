@@ -2,6 +2,8 @@
 import {PbemError} from '../error';
 import {_PbemSettings, _PbemState} from '../game';
 
+export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const ServerGameIdPrefixes = {
   Local: 'l-',
 };

@@ -165,35 +165,20 @@ export class ServerGameDaemon {
         await this._db.bulkDocs(bulk);
       }
       else if (doc.phase === 'game') {
-        const {docs} = await this._db.find({selector: {game: this._id,
-          type: 'game-data-state'}});
-        if (docs.length !== 0) {
-          // Initial state already open - don't worry if watcher is running or
-          // not, as this change alone is not sufficient to warm it up.
-          return;
+        {
+          const {docs} = await this._db.find({selector: {game: this._id,
+            type: 'game-data-state'}});
+          if (docs.length !== 0) {
+            // Initial state already open - don't worry if watcher is running or
+            // not, as this change alone is not sufficient to warm it up.
+            return;
+          }
         }
-
-        // Create sentinel action.
-        const actionFirst: DbUserActionDoc = {
-          _id: DbUserActionDoc.getId(this._id, 0),
-          type: 'game-data-action',
-          game: this._id,
-          actions: [
-            _PbemAction.create({
-              type: 'PbemAction.RoundEnd',
-              game: {},
-            } as PbemAction.Types.RoundEnd),
-          ],
-        };
 
         // NOTE - the _pbemWatcher plugin is NOT set at this point; if state
         // were to be preserved, that would need to happen.  Preferably in
         // an extensible manner.
         const state = await _PbemState.create(doc.settings);
-
-        // Trick to get first PbemAction.RoundStart event to run triggers
-        // as normal rounds - start with round 0 ended!
-        state.roundEnded = true;
 
         const stateFirst: DbGameStateDoc = {
           _id: DbGameStateDoc.getId(this._id, 0),
@@ -201,9 +186,9 @@ export class ServerGameDaemon {
           game: this._id,
           round: 0,
           state: this._saveState(state),
-          actionPrev: 0,
+          actionNext: 0,
         };
-        await this._db.bulkDocs([actionFirst as any, stateFirst]);
+        await this._db.put(stateFirst);
 
         // The watcher MUST run for a minute, because on initialization it 
         // checks if the round is ended, and if so, it starts the next round.
@@ -618,6 +603,12 @@ export class ServerGameDaemon {
     if (this._watcher !== undefined) return;
     this._watcher = new GamePlayerWatcher(this._db, this._id, -1, {
       noContinuous: true});
-    await this._watcher!.init();
+    try {
+      await this._watcher!.init();
+    }
+    catch (e) {
+      this._watcher = undefined;
+      throw e;
+    }
   }
 };

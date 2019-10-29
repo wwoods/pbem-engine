@@ -100,15 +100,15 @@ export interface DbGameStateDoc {
   type: 'game-data-state';
   game: string;
   round: number;
-  // Action preceding this game state.
-  actionPrev: number;
+  // Action following this game state.
+  actionNext: number;
   state: any;
 }
 export namespace DbGameStateDoc {
-  export function getId(gameId: string, actionPrevIndex: number) {
-    const s = '00000000' + actionPrevIndex;
+  export function getId(gameId: string, actionNextIndex: number) {
+    const s = '00000000' + actionNextIndex;
     if (s.length > 16) {
-      throw new PbemError(`Bad action index: ${actionPrevIndex}`);
+      throw new PbemError(`Bad action index: ${actionNextIndex}`);
     }
     return `${gameId}-s${s.substr(-8)}`;
   }

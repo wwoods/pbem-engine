@@ -7,7 +7,7 @@
 
 import createDebug from 'debug';
 
-import { ServerError } from './common';
+import { ServerError, sleep } from './common';
 import { DbUser, DbGame, DbGameDoc } from './db';
 import { ServerGameDaemon } from './gameDaemon';
 import PouchDb from './pouch';
@@ -34,8 +34,6 @@ const timeout = heartbeat * 3;
 const backoff = 10;
 
 const archiveGamesToKeep = 3;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Regardless of local user device or full-powered server, keep a list of all
 // possible daemons and where they're up-to-date.

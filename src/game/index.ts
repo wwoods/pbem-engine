@@ -199,9 +199,6 @@ export interface _PbemState {
   game: any;
   gameEnded: boolean;
   round: number;
-  // Indicates clients may no longer add new actions, as the server is in a 
-  // state of computing the next turn.
-  roundEnded: boolean;
   turnEnded: boolean[];
   plugins: {
     [key: string]: PbemPlugin,
@@ -214,8 +211,7 @@ export namespace _PbemState {
       settings,
       game: {},
       gameEnded: false,
-      round: 1,
-      roundEnded: false,
+      round: 0,
       turnEnded: [],
       plugins: {},
     };
@@ -295,12 +291,13 @@ export namespace PbemState {
     /** Convert a loaded game, if necessary. */
     load?: {(state: State): void};
     /** Check for triggers after any initial action - not called for actions 
-     * which result from the trigger!. */
+     * which result from the trigger!. 
+     * 
+     * Handle the 'PbemAction.RoundStart' action to perform some logic at the
+     * beginning of each round (including first)
+     * */
     triggerCheck?: {(pbem: PbemServerView<State, Action>, 
         action: PbemActionWithDetails<Action>): void};
-    /** Do something at end of round (actions added are added before the
-     * PbemAction.NewRound action). */
-    roundEnd?: {(pbem: PbemServerView<State, Action>): void};
   }
 
 
@@ -374,7 +371,7 @@ export namespace PbemAction {
   }
 
   export namespace Types {
-    export type Builtins = GameEnd | RoundEnd | RoundStart | TurnEnd;
+    export type Builtins = GameEnd | RoundStart | TurnEnd;
 
     export type GameEnd = PbemAction<'PbemAction.GameEnd', {}>;
     export const GameEnd: Hooks<_PbemState, GameEnd> = {
@@ -382,66 +379,34 @@ export namespace PbemAction {
         if (action.playerOrigin >= 0) {
           throw new PbemError('Must be server to end game');
         }
-        if (state.roundEnded) {
-          throw new PbemError('PbemAction.GameEnd should be a response to '
-              + 'RoundStart, not RoundEnd');
-        }
       },
       forward(state, action) {
-        state.roundEnded = true;
         state.gameEnded = true;
       },
       backward(state, action) {
-        state.roundEnded = false;
         state.gameEnded = false;
       },
     };
 
-    export type RoundEnd = PbemAction<'PbemAction.RoundEnd', {
-      turnEnded?: boolean[],
-    }>;
-    export const RoundEnd: Hooks<_PbemState, RoundEnd> = {
-      validate(state, action) {
-        if (action.playerOrigin >= 0) {
-          throw new PbemError('Must be server to end round');
-        }
-        if (state.roundEnded) {
-          throw new PbemError('Round already ended?');
-        }
-      },
-      setup(state, action) {
-        action.game.turnEnded = state.turnEnded.slice();
-      },
-      forward(state, action) {
-        state.roundEnded = true;
-        // If any of the game's RoundEnd hook wants to specify that certain
-        // players do not have a turn, they may.
-        state.turnEnded = state.turnEnded.map((x) => false);
-      },
-      backward(state, action) {
-        state.turnEnded = action.game.turnEnded!.slice();
-        state.roundEnded = false;
-      },
-    };
-
     export type RoundStart = PbemAction<'PbemAction.RoundStart', {
+      turnEnded?: boolean[],
     }>;
     export const RoundStart: Hooks<_PbemState, RoundStart> = {
       validate(state, action) {
         if (action.playerOrigin >= 0) {
           throw new PbemError('Must be server to start round');
         }
-        if (!state.roundEnded) {
-          throw new PbemError('Round must be ended before RoundStart');
-        }
+      },
+      setup(state, action) {
+        action.game.turnEnded = state.turnEnded.slice();
       },
       forward(state, action) {
-        state.roundEnded = false;
         state.round += 1;
+        state.turnEnded = state.turnEnded.map(x => false);
       },
       backward(state, action) {
+        state.turnEnded = action.game.turnEnded!.slice();
         state.round -= 1;
-        state.roundEnded = true;
       },
     };
 
