@@ -1,5 +1,6 @@
 <template lang="pug">
   .pbem-menu
+    .game-name {{pbemTitle}}
     .block
       .title Users on Device
       .pbem-login
@@ -54,7 +55,7 @@
               )
               span {{gameName(game)}}
               span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
-              
+
     .block
       .title Offline Games
       .pbem-menu(v-if="$pbemServer.userLocalId")
@@ -86,6 +87,10 @@
     margin-right: auto;
     max-width: 500px;
     padding-top: 1em;
+
+    .game-name {
+      font-size: 2em;
+    }
 
     .block {
       border-top: solid 0.25em #000;
@@ -134,6 +139,7 @@ export default Vue.extend({
   data() {
     return {
       username: 'Guest1',
+      pbemTitle: document.title,
       gamesLocal: [] as Array<DbUserGameMembershipDoc>,
       gamesRemote: [] as Array<DbUserGameMembershipDoc>,
       gamesEnded: [] as Array<DbUserGameMembershipDoc>,
