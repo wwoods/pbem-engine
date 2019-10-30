@@ -13,7 +13,8 @@ import http from 'http';
 import request from 'request';
 import SuperLogin from '@wwoods/superlogin';
 
-export async function run(webAppCompiled: string, dbPath: string | undefined) {
+export async function run(webAppCompiled: string | number, 
+    dbPath: string | undefined) {
   let app = express();
   app.set('port', process.env.PORT || 8080);
 
@@ -76,14 +77,26 @@ export async function run(webAppCompiled: string, dbPath: string | undefined) {
   }));
   app.use('/auth', superLogin.router);
 
-  app.use(express.static(webAppCompiled));
-  // Support HTML5 history
-  app.all('/game*', (req: any, res: any) => {
-    res.sendFile('index.html', {root: webAppCompiled});
-  });
-  app.all('/staging*', (req: any, res: any) => {
-    res.sendFile('index.html', {root: webAppCompiled});
-  });
+  if (typeof webAppCompiled === 'string') {
+    // Production mode - web app was compiled
+    app.use(express.static(webAppCompiled));
+    // Support HTML5 history
+    app.all('/game*', (req: any, res: any) => {
+      res.sendFile('index.html', {root: webAppCompiled});
+    });
+    app.all('/staging*', (req: any, res: any) => {
+      res.sendFile('index.html', {root: webAppCompiled});
+    });
+  }
+  else {
+    // Proxy to development server
+    app.use((req, res, next) => {
+      req.pipe(request({
+        uri: `http://localhost:${webAppCompiled}${req.path}`,
+        method: req.method,
+      })).pipe(res);
+    });
+  }
 
   http.createServer(app).listen(app.get('port'));
 }

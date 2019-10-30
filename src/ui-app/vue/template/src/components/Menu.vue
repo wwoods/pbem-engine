@@ -13,28 +13,6 @@
               :userId="user.localId"
               :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}"
               ) {{user.name}}
-    .block
-      .title Offline Games
-      .pbem-games
-        span Active games
-        .select-list
-          .select(
-              v-for="game of gamesLocal" 
-              :gameId="game.game"
-              @click="gameLoad(game.game)"
-              )
-              span {{gameName(game)}}
-              span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
-        span Finished games
-        .select-list
-          .select(
-            v-for="game of gamesEnded"
-            :gameId="game.game"
-            @click="gameLoad(game.game)"
-          )
-            span {{gameName(game)}}
-      .pbem-menu(v-if="$pbemServer.userLocalId")
-        input(type="button" @click="createLocal()" value="Create local game")
 
     .block
       .title Online Games
@@ -76,6 +54,29 @@
               )
               span {{gameName(game)}}
               span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+              
+    .block
+      .title Offline Games
+      .pbem-menu(v-if="$pbemServer.userLocalId")
+        input(type="button" @click="createLocal()" value="New local game")
+      .pbem-games
+        span Active games
+        .select-list
+          .select(
+              v-for="game of gamesLocal" 
+              :gameId="game.game"
+              @click="gameLoad(game.game)"
+              )
+              span {{gameName(game)}}
+              span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+        span Finished games
+        .select-list
+          .select(
+            v-for="game of gamesEnded"
+            :gameId="game.game"
+            @click="gameLoad(game.game)"
+          )
+            span {{gameName(game)}}
 
 </template>
 

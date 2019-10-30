@@ -30,6 +30,8 @@ program
   .description('serve the pbem-engine application in development mode')
   .option('--clean', 'do not re-use existing build')
   .option('--vue-debug', "debug pbem-engine's vue template")
+  .option('--production', 'compile UI; needed for e.g. PWA.  Will override '
+    + 'NODE_ENV environment variable.')
   .action((cmd: any) => {
     const cfg = './pbem-config.json';
     assert(fs.existsSync(cfg), `No such file: ${cfg}`);
@@ -90,77 +92,39 @@ program
     }
 
     // Cannot use execFileSync: need event loop for file watch.
-    const server = spawn('npm', ['run', 'serve'], {
-      cwd: pbem_client_folder,
-      stdio: 'inherit',
-    });
-    server.on('close', (code: number) => {
-      for (const w of watchers) {
-        w();
-      }
+    let webApp: number | string;
 
-      process.exitCode = code;
-    });
-  })
-;
+    if (!cmd.opts().production && process.env.NODE_ENV !== 'production') {
+      webApp = 7079;
+      const server = spawn('npx', 
+        ['--no-install', 'vue-cli-service', 'serve', '--port', webApp.toString()], 
+        {
+          cwd: pbem_client_folder,
+          stdio: 'inherit',
+        },
+      );
+      server.on('close', (code: number) => {
+        for (const w of watchers) {
+          w();
+        }
 
-
-program
-  .command('serve-pwa')
-  .description('build and serve the pbem-engine application in a way which may be downloaded as a PWA on a phone')
-  .action((cmd: any) => {
-    // TODO actually build project.. unify with serve code.  Allow --clean.
-
-    for (const g of _gameFilesGetPaths()) {
-      _gameFilesUpdate(g, pbem_client_src_folder, true);
+        process.exitCode = code;
+      });
     }
-    
-    execFileSync('npm', ['run', 'build'], {
-      cwd: pbem_client_folder,
-      stdio: 'inherit',
-    });
-
-    // Note that real PWA requires HTTPS cert, or a local device proxy
-    // TODO ensure ~/.https-serve... rename that folder?
-    // (mkdir -p $HOME/.https-serve/ && cd $HOME/.https-serve/ && sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt)
-    // PWA needs trusted? https://certbot.eff.org/lets-encrypt/ubuntubionic-other
-    // OR use local device proxy https://stackoverflow.com/a/43426714/160205
-    execFileSync('npx', ['--no-install', 'serve', '-l', '8080', '-s', path.join(pbem_client_folder, 'dist')], {
-      stdio: 'inherit',
-    });
-  })
-;
-
-
-program
-  .command('run')
-  .description('run the game in production mode.')
-  .option('--clean', 'do not re-use existing build')
-  .action((cmd: any) => {
-    const cfg = './pbem-config.json';
-    assert(fs.existsSync(cfg), `No such file: ${cfg}`);
-    const config = JSON.parse(fs.readFileSync(cfg));
-
-    if (cmd.opts().clean) {
-      console.log("Cleaning...");
-      rimraf.sync(pbem_client_folder);
+    else {
+      webApp = path.join(pbem_client_folder, 'dist');
+      execFileSync('npm', ['run', 'build'], {
+        cwd: pbem_client_folder,
+        stdio: 'inherit',
+      });
+      // Note that real PWA requires HTTPS cert, or a local device proxy
+      // TODO ensure ~/.https-serve... rename that folder?
+      // (mkdir -p $HOME/.https-serve/ && cd $HOME/.https-serve/ && sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt)
+      // PWA needs trusted? https://certbot.eff.org/lets-encrypt/ubuntubionic-other
+      // OR use local device proxy https://stackoverflow.com/a/43426714/160205
     }
 
-    const vue = require('../ui-app/vue/index');
-    vue.setup(pbem_client_folder, config);
-
-    // https://docs.couchdb.org/en/2.1.2/best-practices/nginx.html#reverse-proxying-couchdb-in-a-subdirectory-with-nginx
-    for (const g of _gameFilesGetPaths()) {
-      _gameFilesUpdate(g, pbem_client_src_folder, true);
-    }
-
-    execFileSync('npm', ['run', 'build'], {
-      cwd: pbem_client_folder,
-      stdio: 'inherit',
-    });
-
-    require('../webserver').run(path.join(pbem_client_folder, 'dist'), 
-        config.db).catch(console.error);
+    require('../webserver').run(webApp, config.db).catch(console.error);
   })
 ;
 
