@@ -37,7 +37,7 @@ const archiveGamesToKeep = 3;
 
 // Regardless of local user device or full-powered server, keep a list of all
 // possible daemons and where they're up-to-date.
-const _daemons = new PouchDb('pbem-daemon');
+let _daemons: PouchDB.Database;
 // The pbem-daemon table is frequently updated, so compact it frequently.
 setInterval(() => _daemons.compact(), 60 * 1000);
 
@@ -46,6 +46,10 @@ const _debug = createDebug('pbem-engine:ServerGameDaemonController');
 const _localCancels: {[key: string]: boolean} = {};
 
 export namespace ServerGameDaemonController {
+  export function init(dbDaemon: PouchDB.Database) {
+    _daemons = dbDaemon;
+  }
+
   /** Start the Daemon corresponding to a certain activity - either a user's
    * local actions, their remote actions, or a specific game.
    * */

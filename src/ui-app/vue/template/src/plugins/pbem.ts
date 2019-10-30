@@ -4,6 +4,8 @@ import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
 import {PbemDbId, PbemSettings, _pbemGameSetup} from 'pbem-engine/lib/game';
 import {ServerError} from 'pbem-engine/lib/server/common';
 import {DbUserId} from 'pbem-engine/lib/server/db';
+import {ServerGameDaemonController} from 'pbem-engine/lib/server/gameDaemonController';
+import PouchDb from 'pbem-engine/lib/server/pouch';
 
 import {Settings, State, Action} from '@/game';
 
@@ -17,6 +19,10 @@ export const pbemPlugin = {
     // Make user code available to core.
     _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
 
+    // Start running local daemon
+    ServerGameDaemonController.init(new PouchDb('pbem-daemon'));
+
+    // Initialize ServerLink
     ServerLink.init();
 
     // Have $pbem refer to an Actor which ties into a game state...

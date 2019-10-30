@@ -5,12 +5,23 @@ import './pouch-extensions';
 PouchDb.plugin(PouchDbFind);
 PouchDb.plugin(PouchDbUpsert);
 
-declare var performance: any;
-if (typeof performance === 'undefined') {
-  performance = undefined;
+function _no_webpack_require(path: string) {
+  path = path.split('\\').join('/');
+  // Ensure webpack can't figure it out.
+  return eval(`require('${path}');`);
 }
+
+declare var performance: any;
 declare var window: any;
-window.PouchDb = PouchDb;
+if (typeof window !== 'undefined') {
+  // Browser
+  window.PouchDb = PouchDb;
+}
+else {
+  // NodeJS
+  var performance = _no_webpack_require('perf_hooks').performance;
+}
+
 PouchDb.plugin(<PouchDB.Plugin><any>{
   /** Calls callback with both current versions (EXCLUDING DELETED!) and
    * changes-versions (INCLUDING DELETED!) of the given selector.
