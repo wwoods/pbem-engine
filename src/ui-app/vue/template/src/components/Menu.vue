@@ -6,7 +6,8 @@
       .pbem-login
         div
           span New user name:
-          input(type="text" v-model="username")
+          input(type="text" autocomplete="off" autocorrect="off" spellcheck="false" 
+              v-model="username")
           input(type="button" @click="userCreate(username)" value="Create")
       .pbem-login
         .select-list
@@ -15,69 +16,71 @@
               :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}"
               ) {{user.name}}
 
-    .block
-      .title Online Games
-      .block2
-        .title User Account
-        div(v-if="$pbemServer.userRemoteName === undefined")
-          div(style="font-weight: bold") New user registration
-          div(v-if="onlineRegisterErrors.length > 0")
-            div(style="color: #f00") {{onlineRegisterErrors}}
-          div
-            span Username
-            input(type="text" v-model="onlineUsername")
-          div
-            span E-mail
-            input(type="text" v-model="onlineEmail")
-          div
-            span Password
-            input(type="password" v-model="onlinePassword")
-          div
-            input(type="button" value="Register" @click="onlineRegister")
-        div(v-else)
-          div(style="font-weight: bold") {{$pbemServer.userRemoteName}}
-          div(v-if="onlineRegisterErrors.length > 0")
-            div(style="color: #f00") {{onlineRegisterErrors}}
-          div(v-if="userRemoteToken === undefined")
-            div Log in again
+    div(v-if="$pbemServer.userLocalId")
+      .block
+        .title Online Games
+        .block2
+          .title User Account
+          div(v-if="$pbemServer.userRemoteName === undefined")
+            div(style="font-weight: bold") New user registration
+            div(v-if="onlineRegisterErrors.length > 0")
+              div(style="color: #f00") {{onlineRegisterErrors}}
+            div
+              span Username
+              input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
+                  v-model="onlineUsername")
+            div
+              span E-mail
+              input(type="email" v-model="onlineEmail")
             div
               span Password
               input(type="password" v-model="onlinePassword")
             div
-              input(type="button" value="Log In" @click="onlineLogin")
-      .block2
-        .title Active games
-        .select-list
-          .select(
-              v-for="game of gamesRemote" 
-              :gameId="game.game"
-              @click="gameLoad(game.game)"
-              )
-              span {{gameName(game)}}
-              span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+              input(type="button" value="Register" @click="onlineRegister")
+          div(v-else)
+            div(style="font-weight: bold") {{$pbemServer.userRemoteName}}
+            div(v-if="onlineRegisterErrors.length > 0")
+              div(style="color: #f00") {{onlineRegisterErrors}}
+            div(v-if="userRemoteToken === undefined")
+              div Log in again
+              div
+                span Password
+                input(type="password" v-model="onlinePassword")
+              div
+                input(type="button" value="Log In" @click="onlineLogin")
+        .block2
+          .title Active games
+          .select-list
+            .select(
+                v-for="game of gamesRemote" 
+                :gameId="game.game"
+                @click="gameLoad(game.game)"
+                )
+                span {{gameName(game)}}
+                span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
 
-    .block
-      .title Offline Games
-      .pbem-menu(v-if="$pbemServer.userLocalId")
-        input(type="button" @click="createLocal()" value="New local game")
-      .pbem-games
-        span Active games
-        .select-list
-          .select(
-              v-for="game of gamesLocal" 
+      .block
+        .title Offline Games
+        .pbem-menu(v-if="$pbemServer.userLocalId")
+          input(type="button" @click="createLocal()" value="New local game")
+        .pbem-games
+          span Active games
+          .select-list
+            .select(
+                v-for="game of gamesLocal" 
+                :gameId="game.game"
+                @click="gameLoad(game.game)"
+                )
+                span {{gameName(game)}}
+                span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+          span Finished games
+          .select-list
+            .select(
+              v-for="game of gamesEnded"
               :gameId="game.game"
               @click="gameLoad(game.game)"
-              )
+            )
               span {{gameName(game)}}
-              span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
-        span Finished games
-        .select-list
-          .select(
-            v-for="game of gamesEnded"
-            :gameId="game.game"
-            @click="gameLoad(game.game)"
-          )
-            span {{gameName(game)}}
 
 </template>
 
@@ -220,7 +223,7 @@ export default Vue.extend({
         return;
       }
 
-      // Called after remote DB updated, so nothing a bout that needed.
+      // Called after remote DB updated, so nothing about that needed.
       await this.$pbemServer.userLogin(userLocalId);
 
       // Check online status.

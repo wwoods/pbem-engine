@@ -43,7 +43,7 @@
     "typescript": "^3.6.2"
   },
   "dependencies": {
-    "@wwoods/superlogin": "file:../superlogin",
+    "@wwoods/superlogin": "github:wwoods/superlogin",
     "commander": "^3.0.1",
     "debug": "^4.1.1",
     "express-mung": "^0.5.1",

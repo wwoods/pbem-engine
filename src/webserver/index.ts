@@ -49,6 +49,10 @@ export async function run(webAppCompiled: string | number,
       userDB: 'sl-users',
       couchAuthDB: '_users',
     },
+    security: {
+      // Annual logins - it's a game.  Security is not our biggest concern.
+      sessionLife: 86400 * 365,
+    },
     testMode: {
       noEmail: true,
     },

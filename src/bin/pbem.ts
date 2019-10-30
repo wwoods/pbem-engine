@@ -95,7 +95,7 @@ program
     let webApp: number | string;
 
     if (!cmd.opts().production && process.env.NODE_ENV !== 'production') {
-      webApp = 7079;
+      webApp = process.env.PORT ? parseInt(process.env.PORT) - 1 : 8079;
       const server = spawn('npx', 
         ['--no-install', 'vue-cli-service', 'serve', '--port', webApp.toString()], 
         {
@@ -110,6 +110,12 @@ program
 
         process.exitCode = code;
       });
+      process.on('exit', () => {
+        server.kill();
+      });
+      const cleanExit = () => { process.exit(); };
+      process.on('SIGINT', cleanExit); // ctrl+c
+      process.on('SIGTERM', cleanExit); // kill
     }
     else {
       webApp = path.join(pbem_client_folder, 'dist');
@@ -124,7 +130,8 @@ program
       // OR use local device proxy https://stackoverflow.com/a/43426714/160205
     }
 
-    require('../webserver').run(webApp, config.db).catch(console.error);
+    const p = require('../webserver').run(webApp, config.db);
+    p.catch(console.error);
   })
 ;
 

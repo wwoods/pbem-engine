@@ -187,6 +187,8 @@ export class _ServerLink {
       if (d.localId !== this._userCurrent!.localId) continue;
       d.remoteToken = token;
       d.remoteDb = db;
+      // Save updated doc for cache
+      this._userCurrent = d;
     }
 
     await this._dbLocal.put(users);
@@ -202,6 +204,8 @@ export class _ServerLink {
       if (d.localId !== this._userCurrent!.localId) continue;
       d.remoteId = userId;
       d.remoteName = userName;
+      // Save updated doc for cache
+      this._userCurrent = d;
     }
 
     await this._dbLocal.put(users);
