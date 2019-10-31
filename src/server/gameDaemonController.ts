@@ -6,8 +6,9 @@
  * */
 
 import createDebug from 'debug';
+import util from 'util';
 
-import { ServerError, sleep } from './common';
+import { errFormat, ServerError, sleep } from './common';
 import { DbUser, DbGame, DbGameDoc } from './db';
 import { ServerGameDaemon } from './gameDaemon';
 import PouchDb from './pouch';
@@ -17,8 +18,9 @@ type DaemonStatus = {
   _id: string;
   _rev?: string;
 
-  // Sequence number to which this daemon is up-to-date.
-  seq: number;
+  // Sequence number to which this daemon is up-to-date (type dependent on
+  // DB provider - like with like, so just pass it along as we get it).
+  seq: number | string;
 };
 namespace DaemonStatus {
   export function getId(dbName: string, gameId?: string) {
@@ -59,14 +61,15 @@ export namespace ServerGameDaemonController {
       context: 'local' | 'remote',
       gameId: string | undefined,
       ) {
-    _runForDb(db, dbResolver, context, gameId).catch(_debug);
+    _runForDb(db, dbResolver, context, gameId).catch(
+        e => _debug(`${db.name}: Uncaught ${errFormat(e)}`));
   }
 
 
   /** Local context by default retries; this stops that. */
   export function runForDbCancelLocal(db: PouchDB.Database<DbUser>,
       gameId: string | undefined) {
-    const id = DaemonStatus.getId(db.name, gameId);
+    const id = DaemonStatus.getId(db.dbName(), gameId);
     _localCancels[id] = true;
   }
 
@@ -76,10 +79,10 @@ export namespace ServerGameDaemonController {
       dbResolver: (dbName: string) => PouchDB.Database<DbUser> | undefined,
       context: 'local' | 'remote',
       gameId: string | undefined) {
-    if (db.name.startsWith('game')) {
-      gameId = db.name;
+    if (db.dbName().startsWith('game')) {
+      gameId = db.dbName();
     }
-    const id = DaemonStatus.getId(db.name, gameId);
+    const id = DaemonStatus.getId(db.dbName(), gameId);
 
     // Was explicitly requested; delete any pending cancels
     delete _localCancels[id];
@@ -87,22 +90,48 @@ export namespace ServerGameDaemonController {
     while (true) {
       const running = await _daemonToken(id, db);
       if (running !== undefined) {
-        if (gameId !== undefined) {
-          const p = new Promise((resolve, reject) => {
-            const sgd = new ServerGameDaemon(running, db as PouchDB.Database<DbGame>, 
-                dbResolver, context, gameId!);
-            sgd.events.on("delete", () => {
-              // Game was fully deleted, treat as a cancel.
-              _localCancels[id] = true;
+
+        // Index DbUserGameMembershipDoc
+        // TODO when https://github.com/pouchdb/pouchdb/issues/7927 is fixed,
+        // this index should be ['type', 'game'].
+        try {
+          await db.createIndex({index: {fields: ['type']}});
+          await db.createIndex({index: {fields: ['game']}});
+        }
+        catch (e) {
+          if (e.name !== 'not_found') throw e;
+
+          // not_found means database doesn't exist.  OK to gracefully exit.
+          running.defunct = true;
+          _debug(`${db.name} missing, exiting daemon`);
+          return;
+        }
+
+        try {
+          if (gameId !== undefined) {
+            const p = new Promise((resolve, reject) => {
+              const sgd = new ServerGameDaemon(running, db as PouchDB.Database<DbGame>, 
+                  dbResolver, context, gameId!);
+              sgd.events.on("close", () => {
+                resolve();
+              });
+              sgd.events.on("delete", () => {
+                // Game was fully deleted, treat as a cancel.
+                _localCancels[id] = true;
+              });
             });
-          });
-          await p;
+            await p;
+          }
+          else if (context === 'local' || context === 'remote') {
+            await _runUser(running, context, db, dbResolver);
+          }
+          else {
+            throw new ServerError.ServerError(`Not implemented: ${context}`);
+          }
         }
-        else if (context === 'local' || context === 'remote') {
-          await _runUser(running, context, db, dbResolver);
-        }
-        else {
-          throw new ServerError.ServerError(`Not implemented: ${context}`);
+        catch (e) {
+          running.defunct = true;
+          running.debug(`${id} - ${errFormat(e)}`);
         }
       }
 
@@ -157,14 +186,17 @@ export namespace ServerGameDaemonController {
       if (doc.type === 'game-response-member') {
         if (doc._deleted) return;
 
+        token.debug(`Considering game-response-member for ${doc.game}`);
         if (doc.gameAddr.host.type === 'local') {
           if (context !== 'local') {
             // Nothing to do - remote membership.
+            token.debug(`Clash ${doc.gameAddr.host.type} not ${context}`);
             return;
           }
         }
         else {
           if (context === 'local') {
+            token.debug(`Clash ${doc.gameAddr.host.type} not ${context}`);
             return;
           }
         }
@@ -172,6 +204,7 @@ export namespace ServerGameDaemonController {
         const gameDb = dbResolver(doc.gameAddr.host.id);
         if (gameDb === undefined) {
           // A local game, but not one on this device.  Cannot do much here.
+          token.debug(`Failed to get db ${doc.gameAddr.host.id}`);
           return;
         }
 
@@ -179,10 +212,12 @@ export namespace ServerGameDaemonController {
         if (gameDb === db) {
           // This document is at its destination; spawn a ServerGameDaemon
           // to perform necessary replications / settings changes.
+          token.debug(`game-response-member result: Spawning game server`);
           runForDb(db, dbResolver, context, doc.game);
         }
         else {
-          const p = new Promise((resolve, reject) => {
+          token.debug(`game-response-member result: replication`);
+          await new Promise((resolve, reject) => {
             const repl = db.replicate.to(gameDb, {
               doc_ids: [doc._id!],
             });
@@ -194,9 +229,17 @@ export namespace ServerGameDaemonController {
               }
               resolve();
             });
-            repl.on('error', reject);
+            repl.on('error', (e: any) => {
+              if (e.name !== 'not_found') {
+                reject(e);
+                return;
+              }
+
+              // not_found means whole DB doesn't exist, probably deleted.
+              doc._deleted = true;
+              db.put(doc).catch(reject).then(resolve);
+            });
           });
-          await p;
         }
       }
       else if (doc.type === 'game-response-action') {
@@ -218,7 +261,16 @@ export namespace ServerGameDaemonController {
             doc_ids: [doc._id!],
           });
           repl.on('complete', resolve);
-          repl.on('error', reject);
+          repl.on('error', (e: any) => {
+            if (e.name !== 'not_found') {
+              reject(e);
+              return;
+            }
+
+            // Whole DB missing
+            doc._deleted = true;
+            db.put(doc).catch(reject).then(resolve);
+          });
         });
         await p;
       }
@@ -233,7 +285,7 @@ export namespace ServerGameDaemonController {
         for (const d of mdoc.docs) {
           if (d.type !== 'game-response-member') throw new ServerError.ServerError("Bad assertion");
           if (d.userId.type === context) {
-            if (d.userId.id === db.name) {
+            if (d.userId.id === db.dbName()) {
               d.gamePhase = doc.phase;
               d.gameEnded = doc.ended;
               d.gamePhaseChange = doc.phaseChange;
@@ -242,25 +294,78 @@ export namespace ServerGameDaemonController {
           }
         }
 
-        // TODO this doesn't handle "ending", meaning that a client will 
-        // technically delete all game information earlier than necessary,
-        // and a host will potentially delete this game before it's replicated.
+        // Rest doesn't matter if deleted
+        if (doc._deleted) return;
+        
+        // See if we are the game creator, but game is hosted in another DB.
+        if (context === 'remote' && doc.createdBy.type === 'remote' 
+            && doc.createdBy.id === db.dbName() && doc.host.id !== db.dbName()) {
+          const dbOther = dbResolver(doc.host.id);
+          if (dbOther === undefined) throw new ServerError.ServerError("No game DB?");
+
+          let docOther: DbGameDoc;
+          try {
+            docOther = await dbOther.get(doc._id!) as DbGameDoc;
+          }
+          catch (e) {
+            if (e.name === 'not_found') {
+              // Whether the whole DB is deleted, or just this document, we're
+              // sunk.
+              doc.ended = true;
+              doc._deleted = true;
+              await db.put(doc);
+              return;
+            }
+            throw e;
+          }
+          if (docOther.createdBy.type !== doc.createdBy.type 
+              || docOther.createdBy.id !== doc.createdBy.id) {
+            // User is trying to hijack game?  Ignore.
+            _debug(`Hijack createdBy? ${doc._id!}`);
+            return;
+          }
+
+          try {
+            await db.replicate.to(dbOther, {
+              doc_ids: [doc._id!],
+            });
+          }
+          catch (e) {
+            if (e.name !== 'not_found') throw e;
+            // not_found for replications means whole DB non-existant.
+            doc._deleted = true;
+            doc.ended = true;
+            doc.ending = false;
+            await db.put(doc);
+            return;
+          }
+        }
+
+        // If game isn't over, the rest doesn't apply.
+        if (!doc.ended) return;
+
+        // Ensure that a client will  not delete all game information earlier
+        // than necessary, esp. before final "ending" replication.
 
         // See if older games need to be deleted.
-        const games = (await db.find({
+        let games = (await db.find({
           selector: {
             type: 'game-data',
             ended: true,
           },
         })).docs as DbGameDoc[];
-        const gg = games;
-        gg.sort((a, b) => {
+        games = games.filter(x => 
+          // Don't delete game which haven't finished their final replication
+          !x.ending 
+          // Unless we aren't the host, in which case this was the final repl
+          || x.host.type === context && x.host.id !== db.dbName());
+        games.sort((a, b) => {
           if (a.phaseChange === undefined) return 1;
           if (b.phaseChange === undefined) return -1;
           return a.phaseChange - b.phaseChange;
         });
-        while (gg.length > archiveGamesToKeep) {
-          const gameDoc = gg.shift()!;
+        while (games.length > archiveGamesToKeep) {
+          const gameDoc = games.shift()!;
           while (true) {
             const toDelete = (await db.find({
               selector: {
@@ -318,6 +423,7 @@ export namespace ServerGameDaemonController {
       }
 
       // Another service is running!
+      _debug(`Another service detected for ${id}`);
       return undefined;
     }
 
@@ -340,7 +446,7 @@ export class DaemonToken {
 
   /** Read to get last update seq number; set to update with next heartbeat. */
   get seq() { return this._token.seq; }
-  set seq(s: number) { this._token.seq = s; }
+  set seq(s: number | string) { this._token.seq = s; }
 
   /** Database which this daemon interacts with directly. */
   _db: PouchDB.Database<DbUser>;
@@ -400,18 +506,32 @@ export class DaemonToken {
         since: this.seq,
         limit: 5,
       });
-      const changes = await this._db.changes(changesStatic);
+      let changes: PouchDB.Core.ChangesResponse<DbUser>;
+      try {
+        changes = await this._db.changes(changesStatic);
+      }
+      catch (e) {
+        throw new ServerError.ServerError(
+            `Changes static for ${util.inspect(changesStatic, false, null)}: `
+            + `${errFormat(e)}`);
+      }
       for (const r of changes.results) {
         if (this.defunct) return;
 
-        await handler(r.doc!);
+        try {
+          await handler(r.doc!);
+        }
+        catch (e) {
+          throw new ServerError.ServerError(
+              `Handling ${util.inspect(r.doc!, false, null)}: ${errFormat(e)}`);
+        }
         // If we reach here, handled OK.
-        this.seq = r.seq as number;
+        this.seq = r.seq;
       }
 
       if (changes.results.length < changesStatic.limit) {
         // Was last batch!
-        this.seq = changes.last_seq as number;
+        this.seq = changes.last_seq;
         break;
       }
     }
@@ -422,7 +542,16 @@ export class DaemonToken {
         live: true,
         since: this.seq,
       });
-      const changes = this._db.changes(changesLive);
+      let changes: PouchDB.Core.Changes<DbUser>;
+      try {
+        changes = this._db.changes(changesLive);
+      }
+      catch (e) {
+        reject(new ServerError.ServerError(
+            `Changes for ${util.inspect(changesLive, false, null)}: `
+            + `${errFormat(e)}`));
+        return;
+      }
       changes.on('error', reject);
 
       // Again, keep async in order.
@@ -458,11 +587,12 @@ export class DaemonToken {
 
         try {
           await handler(info.doc!);
-          this.seq = info.seq as number;
+          this.seq = info.seq;
         }
         catch (e) {
           this.defunct = true;
-          throw e;
+          throw new ServerError.ServerError(
+              `Handling ${util.inspect(info.doc!, false, null)}: ${errFormat(e)}`);
         }
 
         // Take another step

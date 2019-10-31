@@ -59,11 +59,7 @@ export const _pbemServer = {
     router.push({name: 'staging', params: {id: gameId}});
   },
   async createSystem(): Promise<void> {
-    const innerInit = async (s: Settings) => {
-      Settings.Hooks.init(s);
-      if (init !== undefined) await init(s);
-    };
-    const gameId = await ServerLink.stagingCreateSystem(innerInit);
+    const gameId = await ServerLink.stagingCreateSystem();
     router.push({name: 'staging', params: {id: gameId}});
   },
   /** See if the current user matches a PbemDbId from a game.

@@ -71,6 +71,8 @@ export interface DbGameDoc {
   type: 'game-data';
   // The host entity responsible for running this game.
   host: DbUserId;
+  // The original creator, if any
+  createdBy: DbUserId;
   // The name of the host entity
   hostName: string;
   // The current phase of this game; always starts 'staging', 'game' means
@@ -80,6 +82,9 @@ export interface DbGameDoc {
   // ms since epoch, time of game phase change.  May be re-set to undefined to
   // prevent a game from being deleted.
   phaseChange?: number;
+  // Set only for remote games - indicates "createdBy"" membership invite/doc 
+  // needs to be created.
+  initNeeded?: boolean;
   // Signals that the game requires one final replication to clients, and then
   // it's over.  Appends '-ended' to the current phase when done.
   // NOTE: Game daemon still runs until 'ending' set to false.

@@ -69,6 +69,11 @@ PouchDb.plugin(<PouchDB.Plugin><any>{
 });
 
 PouchDb.plugin(<PouchDB.Plugin><any>{
+  dbName(): string {
+    let name = this.name;
+    name = name.slice(name.lastIndexOf('/') + 1);
+    return name;
+  },
   getUuid() { // Public Domain/MIT from https://stackoverflow.com/a/8809472/160205
     var d = Date.now();//Timestamp
     var d2 = (performance !== undefined && performance.now 

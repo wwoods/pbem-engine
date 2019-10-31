@@ -1,7 +1,10 @@
 
+import util from 'util';
+
 import {PbemError} from '../error';
 import {_PbemSettings, _PbemState} from '../game';
 
+export const errFormat = (e: any): string => e.stack || util.inspect(e, false, null);
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const ServerGameIdPrefixes = {

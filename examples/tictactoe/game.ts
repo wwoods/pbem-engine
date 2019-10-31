@@ -90,7 +90,7 @@ export namespace State {
       const settings = state.settings;
       const symbols = settings.game.playerOneIsO ? ['o', 'x'] : ['x', 'o'];
       for (const p of settings.players) {
-        if (p === undefined) continue;
+        if (!p) continue;
         const sym = symbols.shift();
         if (sym === undefined) throw new Error('No symbols left');
         g.playerSymbol[p.index] = sym;

@@ -8,15 +8,15 @@
           option(v-for="n of settings.playersValid" :value="n") {{n}}
         .players
           .player(v-for="player, idx of settings.players")
-            template(v-if="player !== undefined")
+            template(v-if="player")
               span.name(:class="$pbemServer.userCurrentMatches(player.dbId) ? 'self' : ''") {{player.name}}
               template(v-if="$pbemServer.userCurrentMatches(player.dbId)")
                 input(type="button" :value="isHost ? 'Dissolve game' : 'Leave'" @click="playerKick(idx)")
               template(v-else-if="isHost")
                 input(type="button" value="Kick" @click="playerKick(idx)")
-            template(v-if="player === undefined")
+            template(v-if="!player")
               span Empty slot
-              input(type="button" value="Move to this slot")
+              input(type="button" value="Move here (TODO)")
               div(v-if="isHost")
                 input(type="button" value="Add local player..." @click="playerLocalSelect(idx)")
                 //- input(type="button" value="Add friend...")
@@ -183,7 +183,7 @@ export default Vue.extend({
     },
     playerInGame(id: PbemDbId): boolean {
       for (const p of this.settings!.players) {
-        if (p === undefined) continue;
+        if (!p) continue;
         if (this.$pbemServer.dbIdMatches(id, p.dbId)) {
           return true;
         }

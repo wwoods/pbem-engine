@@ -8,6 +8,7 @@
 import bodyParser from 'body-parser';
 import {execFile} from 'child_process';
 import chokidar from 'chokidar';
+import createDebug from 'debug';
 import express from 'express';
 import expressHttpProxy from 'express-http-proxy';
 import expressMung from 'express-mung';
@@ -19,15 +20,17 @@ import process from 'process';
 import SuperLogin from '@wwoods/superlogin';
 import tmp from 'tmp-promise';
 
-import {_pbemGameSetup} from '../game';
+import {_pbemGameSetup, _PbemSettings} from '../game';
 import {sleep} from '../server/common';
-import { DbUser } from '../server/db';
+import { DbUser, DbGameDoc, DbUserId, DbGame } from '../server/db';
 import {ServerGameDaemonController} from '../server/gameDaemonController';
 import PouchDb from '../server/pouch';
 
 /** NOTE: dbPath includes username and password! */
 export async function run(gameCode: string, webAppCompiled: string | number, 
     dbPath: string | undefined) {
+  createDebug.enable('pbem-engine:*');
+
   let app = express();
   app.set('port', process.env.PORT || 8080);
 
@@ -85,6 +88,76 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     return b;
   }));
   app.use('/auth', superLogin.router);
+
+  // Add PBEM API
+  const dbGameIndex = new PouchDb(db + '/pbem-games');
+  app.post('/pbem/createSystem', superLogin.requireAuth, async (req: any, res: any) => {
+    // userID == dbName == pbem$ prefix.
+    const userId = 'pbem$' + req.user._id;
+
+    const s = _PbemSettings.create();
+    
+    // Populate player 1 with host
+    s.players[0] = {
+      name: req.user._id, // remove pbem$
+      status: 'joined',
+      dbId: {
+        type: 'remote',
+        id: userId,
+      },
+      playerSettings: {},
+      index: 0,
+    };
+
+    let gameId = 'game';
+    while (true) {
+      gameId = 'game' + dbGameIndex.getUuid().substr(0, 8);
+      try {
+        await dbGameIndex.put({ _id: gameId });
+        break;
+      }
+      catch (e) {
+        if (e.name !== 'conflict') throw e;
+      }
+    }
+
+    const gameHost: DbUserId = {
+      type: 'system',
+      id: gameId,
+    };
+    const gameDoc: DbGameDoc = {
+      _id: gameId,
+      game: gameId,
+      type: 'game-data',
+      host: gameHost,
+      hostName: s.players[0].name,
+      createdBy: {
+        type: 'remote',
+        id: userId,
+      },
+      initNeeded: true,
+      phase: 'staging',
+      settings: s,
+    };
+    
+    const dbGame = new PouchDb<DbGame>([db, gameId].join('/'));
+    // Will trigger host invitation / membership.
+    await dbGame.put(gameDoc);
+
+    let foundMember = false;
+    while (!foundMember) {
+      const r = await dbGame.changes({include_docs: true});
+      for (const d of r.results) {
+        if (d.doc!.type === 'game-response-member') {
+          foundMember = true;
+          break;
+        }
+      }
+      await sleep(500);
+    }
+
+    res.json({ id: gameId });
+  });
 
   let isProduction: boolean = typeof webAppCompiled === 'string';
   if (isProduction) {
@@ -207,7 +280,11 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
               cwd: gameCode,
             },
             (err, stdout, stderr) => {
-              if (err) reject(err);
+              if (err) {
+                // If compilation fails, the UI compilation or serving will
+                // show the error.
+                //reject(err);
+              }
               resolve(stdout);
             });
         });
@@ -221,8 +298,16 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
       }
       // Re-assign hooks; these are called into, so no other hot-reload code 
       // should be necessary.
-      const {Settings, State, Action} = require(path.join(modulePath, 'game'));
-      _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
+      let ok = false;
+      try {
+        const {Settings, State, Action} = require(path.join(modulePath, 'game'));
+        ok = true;
+        _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
+      }
+      catch (e) {
+        _pbemGameSetup(undefined as any, undefined as any, undefined as any);
+        if (ok) { throw e; }
+      }
     }
     finally {
       compileActive = false;
@@ -256,14 +341,14 @@ function _runServer(db: string) {
     let dbObj: PouchDB.Database<DbUser> | undefined;
     dbObj = dbCache.get(dbName);
     if (dbObj === undefined) {
-      dbObj = new PouchDb<DbUser>([db, dbName].join('/'));
+      dbObj = new PouchDb<DbUser>([db, dbName].join('/'), {skip_setup: true});
       // Fire off a compact when we load a DB for the first time.
       dbObj.compact();
     }
     return dbObj!;
   };
 
-  ServerGameDaemonController.init(dbResolver('pbem-daemon'));
+  ServerGameDaemonController.init(new PouchDb('pbem-daemon'));
 
   const c = globalChanges.changes({
     live: true,
@@ -271,7 +356,7 @@ function _runServer(db: string) {
   });
   c.on('change', (info) => {
     let dbName = info.id.slice(info.id.indexOf(':') + 1);
-    if (['pbem-daemon', 'sl-users', '_dbs', '_users'].indexOf(dbName) !== -1) {
+    if (['pbem-daemon', 'pbem-games', 'sl-users', '_dbs', '_users'].indexOf(dbName) !== -1) {
       // Ignore system databases
       return;
     }

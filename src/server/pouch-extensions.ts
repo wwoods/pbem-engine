@@ -7,6 +7,9 @@ declare namespace PouchDB {
       callbackInitial?: (noMatches: boolean) => void,
     ): FindContinuousCancel;
 
+    /** Find DB name without remote host information.  That is, the ID
+     * of the database, regardless of where it's hosted. */
+    dbName(): string;
     getUuid(): string;
   }
 

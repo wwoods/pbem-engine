@@ -9,6 +9,7 @@
  *
  * */
 import assert from 'assert';
+import axios from 'axios';
 
 import PouchDb from '../server/pouch';
 
@@ -272,7 +273,7 @@ export class _ServerLink {
     // Iterating in game order ensures first player will move first.
     for (let i = 0, m = game.settings.players.length; i < m; i++) {
       const p = game.settings.players[i];
-      if (p === undefined) continue;
+      if (!p) continue;
       if (p.dbId === undefined) continue;
 
       for (const [u, db] of this._dbUsersLoggedIn.entries()) {
@@ -353,7 +354,8 @@ export class _ServerLink {
   async stagingCreateLocal<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<string> {
     if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
         "No user logged in.");
-    const s = await this._stagingCreateSettings(init);
+    const s = _PbemSettings.create() as Settings;
+    await init(s);
 
     // Populate player 1 with the current user.
     s.players[0] = {
@@ -387,7 +389,7 @@ export class _ServerLink {
         break;
       }
     }
-    const gameDoc = {
+    const gameDoc: DbGameDoc = {
       _id: gameDocResp,
       game: gameDocResp,
       type: 'game-data',
@@ -399,7 +401,7 @@ export class _ServerLink {
       },
       phase: 'staging',
       settings: s,
-    } as DbGameDoc;
+    };
     // The current user belongs to the new game.
     await this._dbUserCurrent.bulkDocs([
       gameDoc as any,
@@ -420,77 +422,24 @@ export class _ServerLink {
 
 
 
-  /** Create the settings for a local game, in staging state.
-   *
-   * The current user is automatically player 1 to start.
+  /** Create the settings for a remote, system-run game, in staging state.
+   * 
+   * We will be the host (have ability to dissolve the game).  Accomplished via
+   * an API endpoint.
    * */
-  async stagingCreateSystem<Settings extends _PbemSettings>(
-      init: {(s: Settings): Promise<void>}): Promise<string> {
+  async stagingCreateSystem(): Promise<string> {
     if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
         "No user logged in.");
-    const s = await this._stagingCreateSettings(init);
+    const token = this.userCurrent!.remoteToken;
+    if (token === undefined) throw new ServerError.ServerError(
+        "User not logged in with remote server.");
 
-    // Populate player 1 with the current user.
-    s.players[0] = {
-      name: this.userCurrent!.name,
-      status: 'joined',
-      dbId: {
-        type: 'local',
-        id: this.userCurrent!.localId,
+    const r = await axios.post('/pbem/createSystem', {}, {
+      headers: {
+        Authorization: `Bearer ${this.userCurrent!.remoteToken!}`,
       },
-      playerSettings: {},
-      index: 0,
-    };
-
-    const gameHost = {
-        type: 'local',
-        // Use the specific local ID on this device.  Note that other devices
-        // with this user's account will still be able to play this game,
-        // thanks to the 'ids' document.
-        id: this.userCurrent!.localId,
-    } as DbUserId;
-
-    // Create a stub document for _id / _rev.
-    let gameDocResp: string;
-    while (true) {
-      gameDocResp = 'game' + this._dbUserCurrent.getUuid().substr(0, 8);
-      try {
-        await this._dbUserCurrent.get(gameDocResp);
-      }
-      catch (e) {
-        if (e.name !== 'not_found') throw e;
-        break;
-      }
-    }
-    const gameDoc = {
-      _id: gameDocResp,
-      game: gameDocResp,
-      type: 'game-data',
-      host: gameHost,
-      hostName: this._userCurrent!.name,
-      createdBy: {
-        type: 'local',
-        id: this.userCurrent!.localId,
-      },
-      phase: 'staging',
-      settings: s,
-    } as DbGameDoc;
-    // The current user belongs to the new game.
-    await this._dbUserCurrent.bulkDocs([
-      gameDoc as any,
-      {
-        type: 'game-response-member',
-        userId: gameHost,
-        gameAddr: {
-          host: gameHost,
-          id: gameDoc._id!,
-        },
-        game: gameDoc._id!,
-        hostName: gameDoc.hostName,
-        status: 'joined',
-      } as DbUserGameMembershipDoc,
-    ]);
-    return gameDoc._id!;
+    });
+    return r.data.id as string;
   }
 
   /** For the current user, load the giving game in 'staging' phase.
@@ -630,7 +579,8 @@ export class _ServerLink {
           selector: {
             type: 'game-invitation',
             game: gameId,
-            userId: {$eq: p!.dbId},
+            'userId.type': p!.dbId!.type,
+            'userId.id': p!.dbId!.id,
           },
         })).docs;
         for (const dm of dms) {
@@ -711,11 +661,6 @@ export class _ServerLink {
       const db = await this._dbUsersLoggedIn.get(userIdLocal)!;
       db.setMaxListeners(100);
       await db.compact();
-      // Index DbUserGameMembershipDoc
-      // TODO when https://github.com/pouchdb/pouchdb/issues/7927 is fixed,
-      // this index should be ['type', 'game'].
-      await db.createIndex({index: {fields: ['type']}});
-      await db.createIndex({index: {fields: ['game']}});
 
       // Local synchronization code.  More fancy, since it requires watching
       // changes.
@@ -768,17 +713,6 @@ export class _ServerLink {
     }
     // TODO: remote sync code (only this user <-> remote user, nothing too
     // fancy).
-  }
-
-  async _stagingCreateSettings<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<Settings> {
-    const s = _PbemSettings.create() as Settings;
-    _PbemSettings.Hooks.init(s);
-    await init(s);
-    // After all hooks, ensure players.length is valid
-    if (s.playersValid.indexOf(s.players.length) === -1) {
-      s.players.length = s.playersValid[0];
-    }
-    return s;
   }
 }
 

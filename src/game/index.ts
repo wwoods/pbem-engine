@@ -139,7 +139,7 @@ export interface _PbemSettings {
 
   playersValid: Array<number>;
   playersMin: number;
-  players: Array<PbemPlayer | undefined>;
+  players: Array<PbemPlayer | undefined | null>;
 
   // TODO allow games which are not simultaneous. turnSimultaneous: boolean;
   // TODO allow disabling of pass and play?  Probably not.  turnPassAndPlay: boolean;
@@ -160,6 +160,15 @@ export namespace _PbemSettings {
 
     // Will always be populated by user Settings.Hooks.init().
     settings.game = {};
+
+    // Run user hooks
+    _PbemSettings.Hooks.init(settings);
+    _GameHooks.Settings!.init(settings);
+
+    // Ensure players.length is valid
+    if (settings.playersValid.indexOf(settings.players.length) === -1) {
+      settings.players.length = settings.playersValid[0];
+    }
 
     return settings;
   }
