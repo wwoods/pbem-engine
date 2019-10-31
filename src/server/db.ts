@@ -51,7 +51,7 @@ export type DbUserIdsDoc = {
   type: 'user-ids';
   // The remote ID, if one exists.  If this is filled, it means that our
   // current user account is tied to an online account, and should not be
-  // overwritten.
+  // overwritten.  Matches comm/db.ts:DbLocalUserDefinition.remoteId
   remoteId?: string;
   // Any local IDs used by this account.  Should be modified directly on remote
   // database to reduce probability of conflicts.

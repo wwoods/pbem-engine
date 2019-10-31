@@ -130,8 +130,11 @@ program
       // OR use local device proxy https://stackoverflow.com/a/43426714/160205
     }
 
-    const p = require('../webserver').run(webApp, config.db);
-    p.catch(console.error);
+    const p = require('../webserver').run(pbem_client_folder, webApp, config.db);
+    p.catch((e: any) => {
+      console.error(e);
+      process.exit(1);
+    });
   })
 ;
 

@@ -17,28 +17,32 @@
               ) {{user.name}}
 
     div(v-if="$pbemServer.userLocalId")
-      .block
+      .block.blue
         .title Online Games
-        .block2
+        .block.thin
           .title User Account
-          div(v-if="$pbemServer.userRemoteName === undefined")
+          div(v-if="$pbemServer.userCurrent.remoteName === undefined")
             div(style="font-weight: bold") New user registration
             div(v-if="onlineRegisterErrors.length > 0")
               div(style="color: #f00") {{onlineRegisterErrors}}
-            div
-              span Username
-              input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
-                  v-model="onlineUsername")
-            div
-              span E-mail
-              input(type="email" v-model="onlineEmail")
-            div
-              span Password
-              input(type="password" v-model="onlinePassword")
+            table(style="width: 100%")
+              tr
+                td(style="text-align: right") Username
+                td
+                  input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
+                    v-model="onlineUsername" style="width: 90%;")
+              tr
+                td(style="text-align: right") E-mail
+                td
+                  input(type="email" v-model="onlineEmail" style="width: 90%;")
+              tr
+                td(style="text-align: right") Password
+                td
+                  input(type="password" v-model="onlinePassword" style="width: 90%;")
             div
               input(type="button" value="Register" @click="onlineRegister")
           div(v-else)
-            div(style="font-weight: bold") {{$pbemServer.userRemoteName}}
+            div(style="font-weight: bold") {{$pbemServer.userCurrent.remoteName}}
             div(v-if="onlineRegisterErrors.length > 0")
               div(style="color: #f00") {{onlineRegisterErrors}}
             div(v-if="userRemoteToken === undefined")
@@ -48,7 +52,7 @@
                 input(type="password" v-model="onlinePassword")
               div
                 input(type="button" value="Log In" @click="onlineLogin")
-        .block2
+        .block.thin(v-if="$pbemServer.userCurrent.remoteToken !== undefined")
           .title Active games
           .select-list
             .select(
@@ -58,13 +62,13 @@
                 )
                 span {{gameName(game)}}
                 span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+          div(style="margin-bottom: 0.25em")
+            input(type="button" @click="createSystem()" value="New online game")
 
-      .block
+      .block.blue
         .title Offline Games
-        .pbem-menu(v-if="$pbemServer.userLocalId")
-          input(type="button" @click="createLocal()" value="New local game")
-        .pbem-games
-          span Active games
+        .block.thin
+          .title Active games
           .select-list
             .select(
                 v-for="game of gamesLocal" 
@@ -73,7 +77,10 @@
                 )
                 span {{gameName(game)}}
                 span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
-          span Finished games
+          div(style="margin-bottom: 0.25em")
+            input(type="button" @click="createLocal()" value="New local game")
+        .block.thin
+          .title Finished games
           .select-list
             .select(
               v-for="game of gamesEnded"
@@ -103,15 +110,10 @@
         background-color: #eee;
         margin-bottom: 1em;
       }
-    }
 
-    .block2 {
-      border-top: solid 0.15em #888;
-      margin-bottom: 1em;
-
-      .title {
-        background-color: #ddf;
-        margin-bottom: 1em;
+      &.blue > .title { background-color: #ddf; }
+      &.thin {
+        border-top-width: 0.15em;
       }
     }
 
@@ -124,6 +126,11 @@
         margin-bottom: 0.25em;
         padding: 0.5em;
       }
+    }
+
+    input[type=button] {
+      border-radius: 1em;
+      padding: 1em;
     }
   }
 </style>
@@ -141,14 +148,14 @@ import {DbUserGameMembershipDoc} from 'pbem-engine/lib/server/db';
 export default Vue.extend({
   data() {
     return {
-      username: 'Guest1',
+      username: 'Guest',
       pbemTitle: document.title,
       gamesLocal: [] as Array<DbUserGameMembershipDoc>,
       gamesRemote: [] as Array<DbUserGameMembershipDoc>,
       gamesEnded: [] as Array<DbUserGameMembershipDoc>,
       users: [] as Array<DbLocalUserDefinition>,
       userRemoteToken: '' as string | undefined,
-      onlineUsername: 'user',
+      onlineUsername: '',
       onlineEmail: '',
       onlinePassword: '',
       onlineRegisterErrors: '',
@@ -165,6 +172,9 @@ export default Vue.extend({
         // TODO host = {type: 'local', id: user.localId}.
         // Can write settings here as desired needed, for e.g. a game campaign.
       });
+    },
+    async createSystem() {
+      await this.$pbemServer.createSystem();
     },
     gameLoad(id: string) {
       this.$router.push({name: 'game', params: {id}});
@@ -214,8 +224,8 @@ export default Vue.extend({
       this.gamesRemote = games.filter(x => !x.gameEnded && x.gameAddr.host.type !== 'local');
     },
     async userCreate(username: string) {
-      await this.$pbemServer.userCreate(username);
-      await this.userRefresh();
+      const id = await this.$pbemServer.userCreate(username);
+      await this.userLogin(id);
     },
     async userLogin(userLocalId: string | undefined) {
       if (userLocalId === undefined) {
@@ -239,11 +249,20 @@ export default Vue.extend({
       this.onlineRegisterErrors = '';
       
       // Force a redraw.
-      this.userRemoteToken = this.$pbemServer.userRemoteToken;
+      this.userRemoteToken = this.$pbemServer.userCurrent!.remoteToken;
 
-      const u = this.$pbemServer.userCurrent;
-      if (u === undefined || u.remoteToken === undefined) {
+      const u: Readonly<DbLocalUserDefinition> | undefined = this.$pbemServer.userCurrent;
+      if (u === undefined) {
         // Not logged in, never was, ignore this.
+        return;
+      }
+
+      // If they haven't registered, default to their local user name to avoid
+      // confusion.
+      this.onlineUsername = u.name;
+
+      if (u.remoteToken === undefined) {
+        // Not currently logged in; ignore.
         return;
       }
 
@@ -257,16 +276,34 @@ export default Vue.extend({
       catch (e) {
         this.onlineSetErrorsFromResponse(e);
         if (this.onlineRegisterErrors.toLowerCase().trim() === 'unauthorized') {
-          await this.$pbemServer.userCurrentSetLogin(undefined, undefined);
-          await this.userLogin(this.$pbemServer.userLocalId);
+          if (await this.onlineCheckAccountExists()) {
+            await this.$pbemServer.userCurrentSetLogin(undefined, undefined);
+            await this.userLogin(this.$pbemServer.userLocalId);
+          }
         }
       }
+    },
+    async onlineCheckAccountExists(): Promise<boolean> {
+      const u = this.$pbemServer.userCurrent!;
+      try {
+        const r = await axios.get('/auth/validate-username/' + u.remoteName);
+        if (r.data.ok) {
+          // This user does not exist.  Remove remote association...
+          await this.$pbemServer.userCurrentSetRemote(undefined);
+          this.onlineSetErrors('Previous user account no longer exists.');
+          return false;
+        }
+      }
+      catch (e) {
+      }
+      return true;
     },
     async onlineLogin() {
       this.onlineRegisterErrors = '';
       try {
+        const u = this.$pbemServer.userCurrent!;
         const login = await axios.post('/auth/login', {
-          username: this.$pbemServer.userRemoteName,
+          username: u.remoteName,
           password: this.onlinePassword,
         });
 
@@ -281,21 +318,24 @@ export default Vue.extend({
         this.userLogin(this.$pbemServer.userLocalId);
       }
       catch (e) {
-        this.onlineSetErrorsFromResponse(e);
+        if (await this.onlineCheckAccountExists()) {
+          this.onlineSetErrorsFromResponse(e);
+        }
       }
     },
     async onlineRegister() {
       this.onlineRegisterErrors = '';
       try {
+        const username = this.onlineUsername.toLowerCase();
         const response = await axios.post('/auth/register', {
-          username: this.onlineUsername,
+          username: username,
           email: this.onlineEmail,
           password: this.onlinePassword,
           confirmPassword: this.onlinePassword,
         });
 
         // On success, save information, and log in.
-        await this.$pbemServer.userCurrentSetRemote(this.onlineUsername);
+        await this.$pbemServer.userCurrentSetRemote(username);
 
         await this.onlineLogin();
       }
@@ -303,9 +343,12 @@ export default Vue.extend({
         this.onlineSetErrorsFromResponse(e);
       }
     },
+    onlineSetErrors(e: string) {
+      this.onlineRegisterErrors = e;
+    },
     onlineSetErrorsFromResponse(e: any) {
       if (!e.response) {
-        this.onlineRegisterErrors = 'offline?';
+        this.onlineRegisterErrors = 'offline or server down';
         return;
       }
       

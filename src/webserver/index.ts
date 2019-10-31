@@ -10,15 +10,18 @@ import express from 'express';
 import expressHttpProxy from 'express-http-proxy';
 import expressMung from 'express-mung';
 import http from 'http';
+import NodeCache from 'node-cache';
+import path from 'path';
 import process from 'process';
 import SuperLogin from '@wwoods/superlogin';
 
+import {_pbemGameSetup} from '../game';
 import { DbUser } from '../server/db';
 import {ServerGameDaemonController} from '../server/gameDaemonController';
 import PouchDb from '../server/pouch';
 
 /** NOTE: dbPath includes username and password! */
-export async function run(webAppCompiled: string | number, 
+export async function run(gameCode: string, webAppCompiled: string | number, 
     dbPath: string | undefined) {
   let app = express();
   app.set('port', process.env.PORT || 8080);
@@ -69,7 +72,7 @@ export async function run(webAppCompiled: string | number,
       // Overwrite DB with appropriate, routed path.
       for (const dbName of Object.keys(b.userDBs)) {
         let db = b.userDBs[dbName];
-        const splitter = '@' + dbNoUserInfo;
+        const splitter = '@' + dbNoUserInfo + '/';
         db = db.split(splitter).slice(1).join(splitter);
         b.userDBs[dbName] = db;
       }
@@ -96,6 +99,12 @@ export async function run(webAppCompiled: string | number,
 
   http.createServer(app).listen(app.get('port'));
 
+  // Connect user game code to pbem-engine code.
+  console.log(gameCode);
+  const {Settings, State, Action} = require(path.join(path.resolve(gameCode), 
+    '/game'));
+  _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
+
   // Now run our service
   _runServer(db);
 }
@@ -107,11 +116,19 @@ function _runServer(db: string) {
   const globalChanges = new PouchDb(db + '/_global_changes');
   setInterval(globalChanges.compact.bind(globalChanges), 10 * 1000);
 
+  const dbCache = new NodeCache({
+    stdTTL: 5 * 60,
+    useClones: false,
+  });
   const dbResolver = (dbName: string) => {
-    // TODO - handle pbem$ prefix on user IDs...
-    if (dbName.startsWith('pbem$')) {
+    let db: PouchDB.Database<DbUser> | undefined;
+    db = dbCache.get(dbName);
+    if (db === undefined) {
+      db = new PouchDb<DbUser>([db, dbName].join('/'));
+      // Fire off a compact when we load a DB for the first time.
+      db.compact();
     }
-    return new PouchDb<DbUser>(db + '/' + dbName);
+    return db!;
   };
 
   ServerGameDaemonController.init(dbResolver('pbem-daemon'));
@@ -121,14 +138,14 @@ function _runServer(db: string) {
     // TODO: on init, start from now?  Or start from 0?
   });
   c.on('change', (info) => {
-    let dbName = info.id.slice(info.id.indexOf(':'));
-    console.log(dbName);
-    return;
-    if (dbName.startsWith('pbem$') || dbName.startsWith('game')) {
-      const dbConn = dbResolver(dbName);
-      ServerGameDaemonController.runForDb(dbConn, dbResolver, 'remote', 
-        undefined);
+    let dbName = info.id.slice(info.id.indexOf(':') + 1);
+    if (['pbem-daemon', 'sl-users', '_dbs', '_users'].indexOf(dbName) !== -1) {
+      // Ignore system databases
+      return;
     }
     console.log(dbName);
+    const dbConn = dbResolver(dbName);
+    ServerGameDaemonController.runForDb(dbConn, dbResolver, 'remote', 
+      undefined);
   });
 }

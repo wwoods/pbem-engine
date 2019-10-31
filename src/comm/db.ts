@@ -22,15 +22,13 @@ export type DbLocalUserDefinition = {
   // The user's other unique-ish local IDs and local ID on current device, put
   // into one array.
   localIdAll: string[];
-  // The user's unique remote ID.
+  // The user's remote unique ID, and also their database name.
   remoteId?: string;
   // The user's unique remote name.
   remoteName?: string;
-  // The user's remote database connection string.  This value is unset when
-  // the user is logged out.  Therefore, if it is set, they are logged in.
-  remoteDb?: string;
   // The user's remote token:password, used for verifying that the session is
-  // still active.
+  // still active.  This value is unset when the user is logged out.  Therefore, 
+  // if it is set, they are logged in.
   remoteToken?: string;
 };
 

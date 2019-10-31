@@ -80,7 +80,7 @@ export class _ServerLink {
       return doc as DbLocalUsersDoc;
     });
     for (const u of this._usersLocal) {
-      await this._dbUserLocalEnsureLoaded(u.localId, u.remoteToken, u.remoteDb);
+      await this._dbUserLocalEnsureLoaded(u.localId, u.remoteToken, u.remoteId);
     }
     if (loginUser !== undefined) {
       await this.userLogin(loginUser);
@@ -155,7 +155,7 @@ export class _ServerLink {
       return doc as DbLocalUsersDoc;
     });
 
-    await this.userLogin(userId);
+    return userId;
   }
 
   /** Switch to local user with specified local ID.
@@ -167,7 +167,7 @@ export class _ServerLink {
 
     // Set current user database
     await this._dbUserLocalEnsureLoaded(userIdLocal, u[0].remoteToken, 
-        u[0].remoteDb);
+        u[0].remoteId);
     this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
     this._userCurrent = u[0];
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
@@ -186,7 +186,9 @@ export class _ServerLink {
     for (const d of users.users) {
       if (d.localId !== this._userCurrent!.localId) continue;
       d.remoteToken = token;
-      d.remoteDb = db;
+      if (db !== undefined) {
+        d.remoteId = db;
+      }
       // Save updated doc for cache
       this._userCurrent = d;
     }
@@ -195,15 +197,18 @@ export class _ServerLink {
   }
 
 
-  /** On registration, user gets a unique ID + username. */
-  async userCurrentSetRemote(userId: string, userName: string) {
+  /** On registration, user gets a unique, permanent username. */
+  async userCurrentSetRemote(userName: string | undefined) {
     const users = (await this._dbLocal.get('users')) as DbLocalUsersDoc;
     if (users === undefined) throw new ServerError.ServerError("No users?");
 
     for (const d of users.users) {
       if (d.localId !== this._userCurrent!.localId) continue;
-      d.remoteId = userId;
       d.remoteName = userName;
+      if (userName === undefined) {
+        d.remoteId = undefined;
+        d.remoteToken = undefined;
+      }
       // Save updated doc for cache
       this._userCurrent = d;
     }
@@ -346,6 +351,81 @@ export class _ServerLink {
    * The current user is automatically player 1 to start.
    * */
   async stagingCreateLocal<Settings extends _PbemSettings>(init: {(s: Settings): Promise<void>}): Promise<string> {
+    if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
+        "No user logged in.");
+    const s = await this._stagingCreateSettings(init);
+
+    // Populate player 1 with the current user.
+    s.players[0] = {
+      name: this.userCurrent!.name,
+      status: 'joined',
+      dbId: {
+        type: 'local',
+        id: this.userCurrent!.localId,
+      },
+      playerSettings: {},
+      index: 0,
+    };
+
+    const gameHost = {
+        type: 'local',
+        // Use the specific local ID on this device.  Note that other devices
+        // with this user's account will still be able to play this game,
+        // thanks to the 'ids' document.
+        id: this.userCurrent!.localId,
+    } as DbUserId;
+
+    // Create a stub document for _id / _rev.
+    let gameDocResp: string;
+    while (true) {
+      gameDocResp = 'game' + this._dbUserCurrent.getUuid().substr(0, 8);
+      try {
+        await this._dbUserCurrent.get(gameDocResp);
+      }
+      catch (e) {
+        if (e.name !== 'not_found') throw e;
+        break;
+      }
+    }
+    const gameDoc = {
+      _id: gameDocResp,
+      game: gameDocResp,
+      type: 'game-data',
+      host: gameHost,
+      hostName: this._userCurrent!.name,
+      createdBy: {
+        type: 'local',
+        id: this.userCurrent!.localId,
+      },
+      phase: 'staging',
+      settings: s,
+    } as DbGameDoc;
+    // The current user belongs to the new game.
+    await this._dbUserCurrent.bulkDocs([
+      gameDoc as any,
+      {
+        type: 'game-response-member',
+        userId: gameHost,
+        gameAddr: {
+          host: gameHost,
+          id: gameDoc._id!,
+        },
+        game: gameDoc._id!,
+        hostName: gameDoc.hostName,
+        status: 'joined',
+      } as DbUserGameMembershipDoc,
+    ]);
+    return gameDoc._id!;
+  }
+
+
+
+  /** Create the settings for a local game, in staging state.
+   *
+   * The current user is automatically player 1 to start.
+   * */
+  async stagingCreateSystem<Settings extends _PbemSettings>(
+      init: {(s: Settings): Promise<void>}): Promise<string> {
     if (this._dbUserCurrent === undefined) throw new ServerError.ServerError(
         "No user logged in.");
     const s = await this._stagingCreateSettings(init);
@@ -639,20 +719,27 @@ export class _ServerLink {
 
       // Local synchronization code.  More fancy, since it requires watching
       // changes.
-      const userIdsDocs = (await db.find({selector: {type: 'user-ids'}})).docs;
-      if (userIdsDocs.length === 0) {
+      let userIdsDoc: DbUserIdsDoc;
+      try {
+        userIdsDoc = await db.get('user-ids');
+        // Ensure current ID is in list of localIds for this account.
+        if (userIdsDoc.localIds.indexOf(userIdLocal) === -1) {
+          userIdsDoc.localIds.push(userIdLocal);
+          await db.put(userIdsDoc);
+        }
+      }
+      catch (e) {
+        if (e.name !== 'not_found') {
+          throw e;
+        }
+
         const d: DbUserIdsDoc = {
           _id: 'user-ids',
           type: 'user-ids',
           localIds: [userIdLocal],
           localIdActive: userIdLocal,
         };
-        const r = await db.put(d);
-        (d as any)._rev = r.rev;
-        userIdsDocs.push(d as any);
-      }
-      else if (userIdsDocs.length !== 1) {
-        console.log(`More than one userIdsDocs? ${userIdsDocs.length}`);
+        await db.put(d);
       }
 
       // Signal that this user db needs to be checked for changes.  Since local,
@@ -672,7 +759,7 @@ export class _ServerLink {
     if (userRemoteToken !== undefined && userRemoteDb !== undefined) {
       const noScheme = location.origin.split('//');
       const dbUrl = [noScheme[0], '//', userRemoteToken, '@', 
-          noScheme.splice(1).join('//'), '/db', userRemoteDb].join('');
+          noScheme.slice(1).join('//'), '/db/', userRemoteDb].join('');
       const sync = this._dbUsersLoggedIn.get(userIdLocal)!.sync(dbUrl, {
         live: true,
         retry: true,

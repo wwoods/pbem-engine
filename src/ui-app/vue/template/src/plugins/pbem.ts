@@ -58,6 +58,14 @@ export const _pbemServer = {
     const gameId = await ServerLink.stagingCreateLocal(innerInit);
     router.push({name: 'staging', params: {id: gameId}});
   },
+  async createSystem(): Promise<void> {
+    const innerInit = async (s: Settings) => {
+      Settings.Hooks.init(s);
+      if (init !== undefined) await init(s);
+    };
+    const gameId = await ServerLink.stagingCreateSystem(innerInit);
+    router.push({name: 'staging', params: {id: gameId}});
+  },
   /** See if the current user matches a PbemDbId from a game.
    * */
   userCurrentMatches(id: PbemDbId) {
@@ -89,22 +97,12 @@ export const _pbemServer = {
   async userCurrentSetLogin(token: string | undefined, db: string | undefined) {
     return await ServerLink.userCurrentSetLogin(token, db);
   },
-  async userCurrentSetRemote(username: string) {
-    return await ServerLink.userCurrentSetRemote(username, username);
+  async userCurrentSetRemote(username: string | undefined) {
+    return await ServerLink.userCurrentSetRemote(username);
   },
   get userLocalId() {
     const u = ServerLink.userCurrent;
     return u && u.localId;
-  },
-  /** Used to poll for account created */
-  get userRemoteName() {
-    const u = ServerLink.userCurrent;
-    return u && u.remoteName;
-  },
-  /** Used to poll for active session */
-  get userRemoteToken() {
-    const u = ServerLink.userCurrent;
-    return u && u.remoteToken;
   },
   async userCreate(username: string) {
     return await ServerLink.userCreate(username);
