@@ -23,6 +23,8 @@
     "@vue/cli-plugin-pwa": "^3.11.0",
     "@vue/cli-plugin-typescript": "^3.11.0",
     "@vue/cli-service": "^3.11.0",
+    "pug": "^2.0.4",
+    "pug-plain-loader": "^1.0.0",
     "sass": "^1.18.0",
     "sass-loader": "^7.1.0",
     "source-map-loader": "^0.2.4",

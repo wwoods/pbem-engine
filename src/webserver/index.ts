@@ -6,16 +6,21 @@
  * */
 
 import bodyParser from 'body-parser';
+import {execFile} from 'child_process';
+import chokidar from 'chokidar';
 import express from 'express';
 import expressHttpProxy from 'express-http-proxy';
 import expressMung from 'express-mung';
+import {promises as fs} from 'fs';
 import http from 'http';
 import NodeCache from 'node-cache';
 import path from 'path';
 import process from 'process';
 import SuperLogin from '@wwoods/superlogin';
+import tmp from 'tmp-promise';
 
 import {_pbemGameSetup} from '../game';
+import {sleep} from '../server/common';
 import { DbUser } from '../server/db';
 import {ServerGameDaemonController} from '../server/gameDaemonController';
 import PouchDb from '../server/pouch';
@@ -81,9 +86,10 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   }));
   app.use('/auth', superLogin.router);
 
-  if (typeof webAppCompiled === 'string') {
+  let isProduction: boolean = typeof webAppCompiled === 'string';
+  if (isProduction) {
     // Production mode - web app was compiled
-    app.use(express.static(webAppCompiled));
+    app.use(express.static(webAppCompiled as string));
     // Support HTML5 history
     app.all('/game*', (req: any, res: any) => {
       res.sendFile('index.html', {root: webAppCompiled});
@@ -100,13 +106,139 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   http.createServer(app).listen(app.get('port'));
 
   // Connect user game code to pbem-engine code.
-  console.log(gameCode);
-  const {Settings, State, Action} = require(path.join(path.resolve(gameCode), 
-    '/game'));
-  _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
+  await _connectUserCode(gameCode, isProduction);
 
   // Now run our service
   _runServer(db);
+}
+
+
+/** Build user game code in a nodeJS-compatible manner, and plug it into 
+ * pbem-engine's game hooks.
+ * 
+ * If not production, also watch for changes using chokidar.
+ * */
+async function _connectUserCode(gameCode: string, isProduction: boolean) {
+  // Ideally this would steal from Vue's compilation process, but that is 
+  // compiled for use in browser.  We need a node-compatible version.
+
+  const exists = async (p: string) => {
+    try {
+      await fs.stat(p);
+      return true;
+    }
+    catch (e) {
+      return false;
+    }
+  };
+
+  // Path to game source file/directory
+  let gameSourcePath = path.join(path.resolve(gameCode), 'src', 'game');
+  if (!await exists(gameSourcePath)) {
+    if (await exists(gameSourcePath + '.js')) {
+      gameSourcePath += '.js';
+    }
+    else if (await exists(gameSourcePath + '.ts')) {
+      gameSourcePath += '.ts';
+    }
+    else {
+      throw new Error(`Could not find game source? ${gameSourcePath}`);
+    }
+  }
+
+  // We may need to import some modules (e.g., "tslib") from the game.
+  const gameNodeModules = path.join(path.resolve(gameCode), 'node_modules');
+  process.env.NODE_PATH = gameNodeModules + (
+      process.env.NODE_PATH !== undefined ? ':' + process.env.NODE_PATH : '');
+  require('module').Module._initPaths();
+
+  // IF typescript:
+  // 1. Fork tsconfig.json
+  // 2. Modify "compilerOptions"
+  //    a. module -> commonjs
+  //    b. outDir -> Something temporary (rimraf on exit)
+  //    c. "include", prefix all "src" extensions with "game*"
+  let tsFile: string | undefined;
+  let modulePath: string = gameSourcePath;
+  let maybeTsFile = path.join(gameCode, 'tsconfig.json');
+  if (await exists(maybeTsFile)) {
+    tsFile = "pbem-server-tsconfig.json";
+    let contents = JSON.parse((await fs.readFile(maybeTsFile)).toString());
+    contents.compilerOptions.module = "commonjs";
+    contents.compilerOptions.outDir = modulePath = (await tmp.dir({
+      unsafeCleanup: true,
+    })).path;
+    for (let i = contents.include.length - 1; i > -1; i -= 1) {
+      const p = contents.include[i];
+      if (p.endsWith('.vue') || p.endsWith('.tsx')) {
+        contents.include.splice(i, 1);
+        continue;
+      }
+
+      if (contents.include[i].startsWith("src")) {
+        contents.include[i] = contents.include[i].replace(/(\*\.[a-zA-Z]+)$/, 'game*$1');
+      }
+    }
+    await fs.writeFile(path.join(gameCode, tsFile), JSON.stringify(contents));
+  }
+
+  let compileActive = false;
+  let compileQueued = false;
+  const compile = async () => {
+    if (compileActive) {
+      if (compileQueued) return;
+      compileQueued = true;
+      while (compileActive) {
+        await sleep(100);
+      }
+      compileQueued = false;
+    }
+    compileActive = true;
+
+    try {
+      // 3. Run tsc -b tsconfigFork.json [-i? don't know]
+      // 4. Require compiled config, for "game" module
+      if (tsFile !== undefined) {
+        await new Promise((resolve, reject) => {
+          execFile(
+            'npx', 
+            ['--no-install', 'tsc', '-b', tsFile!], 
+            {
+              cwd: gameCode,
+            },
+            (err, stdout, stderr) => {
+              if (err) reject(err);
+              resolve(stdout);
+            });
+        });
+      }
+
+      // Bust the cache before reloading.
+      for (const p of Object.keys(require.cache)) {
+        if (p.startsWith(modulePath)) {
+          delete require.cache[p];
+        }
+      }
+      // Re-assign hooks; these are called into, so no other hot-reload code 
+      // should be necessary.
+      const {Settings, State, Action} = require(path.join(modulePath, 'game'));
+      _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
+    }
+    finally {
+      compileActive = false;
+    }
+  };
+
+  await compile();
+
+  if (!isProduction) {
+    const watcher = chokidar.watch(gameSourcePath);
+    watcher.on('ready', function() {
+      watcher.on('all', function() {
+        compile().catch(console.error);
+      });
+    });
+  }
 }
 
 
@@ -121,14 +253,14 @@ function _runServer(db: string) {
     useClones: false,
   });
   const dbResolver = (dbName: string) => {
-    let db: PouchDB.Database<DbUser> | undefined;
-    db = dbCache.get(dbName);
-    if (db === undefined) {
-      db = new PouchDb<DbUser>([db, dbName].join('/'));
+    let dbObj: PouchDB.Database<DbUser> | undefined;
+    dbObj = dbCache.get(dbName);
+    if (dbObj === undefined) {
+      dbObj = new PouchDb<DbUser>([db, dbName].join('/'));
       // Fire off a compact when we load a DB for the first time.
-      db.compact();
+      dbObj.compact();
     }
-    return db!;
+    return dbObj!;
   };
 
   ServerGameDaemonController.init(dbResolver('pbem-daemon'));
