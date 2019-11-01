@@ -142,6 +142,11 @@ export interface DbUserGameInvitationDoc {
   // Replication target for DbUserGameMembershipDoc
   userId: DbUserId;
 }
+export namespace DbUserGameInvitationDoc {
+  export function getId(game: string, userId: string) {
+    return `${game}-i${userId}`;
+  }
+}
 
 /** For any game, including those hosted by this user, this points to the game.
  *
@@ -184,6 +189,11 @@ export interface DbUserGameMembershipDoc {
   status: 'invited' | 'joined' | 'leaving';
   // TODO: user-specific settings (color preference, etc).  Would only matter
   // during staging, and be pulled finally before 'staging' -> 'game'.
+}
+export namespace DbUserGameMembershipDoc {
+  export function getId(gameId: string, userId: string) {
+    return `${gameId}-m${userId}`;
+  }
 }
 
 /** Queues an action to be played (by this user).

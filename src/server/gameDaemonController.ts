@@ -423,7 +423,7 @@ export namespace ServerGameDaemonController {
       }
 
       // Another service is running!
-      _debug(`Another service detected for ${id}`);
+      //_debug(`Another service detected for ${id}`);
       return undefined;
     }
 

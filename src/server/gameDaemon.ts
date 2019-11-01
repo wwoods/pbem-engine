@@ -124,6 +124,17 @@ export class ServerGameDaemon {
   async _handleGameDocBeforeWatcher(doc: DbUser) {
     if (doc.type === 'game-data') {
       // Game data changed
+
+      // Replicate to public game log, if remote (also replicate delete, ended,
+      // etc).
+      if (this._context === 'remote') {
+        const dbListing = this._dbResolver('pbem-games');
+        if (dbListing === undefined) throw new ServerError.ServerError("No pbem-games DB?");
+        await this._db.replicate.to(dbListing, {
+          doc_ids: [doc._id!],
+        });
+      }
+
       if (doc.ended && !doc.ending || doc._deleted) {
         this.deactivate();
         this.events.emit("delete");
@@ -173,7 +184,7 @@ export class ServerGameDaemon {
       if (doc.initNeeded) {
         // Host invite + membership needs to be created.
         const invite: DbUserGameInvitationDoc = {
-          _id: this._id + '-host-invite',
+          _id: DbUserGameInvitationDoc.getId(this._id, doc.createdBy.id),
           type: 'game-invitation',
           game: this._id,
           userId: doc.createdBy,
@@ -192,15 +203,19 @@ export class ServerGameDaemon {
         await this._db.put(doc);
       }
       else {
+        let hasHost = doc.createdBy === undefined;
         let hasPlayer = false;
         for (const p of doc.settings.players) {
           if (!p) continue;
           if (!p.dbId) continue;
           if (p.status !== 'joined' && p.status !== 'invited') continue;
+          if (p.dbId.type === doc.createdBy.type && p.dbId.id === doc.createdBy.id) {
+            hasHost = true;
+          }
           hasPlayer = true;
           break;
         }
-        if (!hasPlayer) {
+        if (!hasPlayer || !hasHost) {
           doc.ended = true;
           doc.ending = true;
           await this._db.put(doc);
@@ -253,8 +268,10 @@ export class ServerGameDaemon {
       if (userDb === undefined) throw new ServerError.ServerError(
         `Could not find db for ${doc.userId.type} / ${doc.userId.id}`);
 
-      await this._handleUserResponseUpdate(doc.userId, userDb, doc);
+      // Check settings first, as that modifies game-data OR deletes the invite
+      // if there's no room.
       await this._handleSettingsCheck();
+      await this._handleUserResponseUpdate(doc.userId, userDb, doc);
     }
     else if (doc.type === 'game-response-action') {
       await this._watcherEnsureRunning();
@@ -369,7 +386,11 @@ export class ServerGameDaemon {
       if (uid === -1) return -1;
 
       // TODO - poll local / remote name store.
-      const name = player.dbId.id;
+      let name = player.dbId.id;
+      if (player.dbId.type !== 'local') {
+        // remove 'pbem$'
+        name = name.slice(5);
+      }
       player.name = name;
 
       changed = true;
@@ -435,7 +456,7 @@ export class ServerGameDaemon {
             // Delete this invite, I suppose.
             i._deleted = true;
             await this._db.put(i);
-            this._debug(`handleSettingsCheck: Invite deleted for ${i.userId.id}`);
+            this._debug(`handleSettingsCheck: Invite deleted for ${i.userId.id}, no room`);
           }
           else {
             slotsSeen.add(uid);
@@ -511,6 +532,7 @@ export class ServerGameDaemon {
         const isCreator = (
           this._creator.type === userId.type && this._creator.id === userId.id);
         const respDoc: DbUserGameMembershipDoc = {
+          _id: DbUserGameMembershipDoc.getId(this._id, userId.id),
           type: 'game-response-member',
           userId: userId,
           gameAddr: {
@@ -528,24 +550,55 @@ export class ServerGameDaemon {
     else {
       // There's a response; confirm OK by making sure invitation exists.
       if (invites.length === 0) {
-        // No invitation - they should be rejected.
-        if (!docCause._deleted) {
-          this._handleReplication(userDb, false);
-        }
+        // No invitation - they should be rejected UNLESS this is a public, open
+        // game, in which case an invitation may be created if the game is in
+        // 'staging' state.
+        const d = await this._db.get(this._id) as DbGameDoc;
+        let allow = false;
         
-        this._debug(`handleUserResponse: invite revoked for ${userId.id}`);
-        for (const r of responses) {
-          r._deleted = true;
+        if (d.phase === 'staging' && !d.ended) {
+          let hasSpace = false;
+          for (const player of d.settings.players) {
+            if (!player) {
+              hasSpace = true;
+              break;
+            }
+          }
+          if (hasSpace) allow = true;
         }
-        await userDb.bulkDocs(responses);
 
-        const dd = (await this._db.find({selector: {
-          type: 'game-response-member', 'userId.type': userId.type, 'userId.id': userId.id,
-          game: this._id}})).docs;
-        for (const r of dd) {
-          r._deleted = true;
+        if (allow) {
+          // Create an invitation - game settings will be updated in 
+          // _handleSettingsCheck()
+          this._debug(`handleUserResponse: creating invitation for ${userId.id}`);
+          const invite: DbUserGameInvitationDoc = {
+            _id: DbUserGameInvitationDoc.getId(this._id, userId.id),
+            type: "game-invitation",
+            game: this._id,
+            userId: userId,
+          };
+          await this._db.put(invite);
         }
-        await this._db.bulkDocs(dd);
+        else {
+          if (!docCause._deleted) {
+            // Already done if deleted
+            this._handleReplication(userDb, false);
+          }
+          
+          this._debug(`handleUserResponse: invite revoked for ${userId.id}`);
+          for (const r of responses) {
+            r._deleted = true;
+          }
+          await userDb.bulkDocs(responses);
+
+          const dd = (await this._db.find({selector: {
+            type: 'game-response-member', 'userId.type': userId.type, 'userId.id': userId.id,
+            game: this._id}})).docs;
+          for (const r of dd) {
+            r._deleted = true;
+          }
+          await this._db.bulkDocs(dd);
+        }
         return;
       }
 

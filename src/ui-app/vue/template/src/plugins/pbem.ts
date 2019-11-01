@@ -3,7 +3,7 @@ import {PlayerView, ServerLink} from 'pbem-engine/lib/comm';
 import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
 import {PbemDbId, PbemSettings, _pbemGameSetup} from 'pbem-engine/lib/game';
 import {ServerError} from 'pbem-engine/lib/server/common';
-import {DbUserId} from 'pbem-engine/lib/server/db';
+import {DbGameDoc, DbUserId} from 'pbem-engine/lib/server/db';
 import {ServerGameDaemonController} from 'pbem-engine/lib/server/gameDaemonController';
 import PouchDb from 'pbem-engine/lib/server/pouch';
 
@@ -74,6 +74,10 @@ export const _pbemServer = {
    * */
   dbIdMatches(id1: PbemDbId, id2: PbemDbId) {
     return ServerLink.dbIdMatches(id1 as DbUserId, id2 as DbUserId);
+  },
+  /** Join a remote game. */
+  async gameJoin(game: DbGameDoc) {
+    return await ServerLink.gameJoin(game);
   },
   async gameListMembership() {
     return await ServerLink.gameListMembership();

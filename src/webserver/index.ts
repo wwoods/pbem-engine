@@ -89,8 +89,25 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   }));
   app.use('/auth', superLogin.router);
 
+  // Set up database pool.
+  const dbCache = new NodeCache({
+    stdTTL: 5 * 60,
+    useClones: false,
+  });
+  const dbResolver = (dbName: string) => {
+    let dbObj: PouchDB.Database<DbUser> | undefined;
+    dbObj = dbCache.get(dbName);
+    if (dbObj === undefined) {
+      dbObj = new PouchDb<DbUser>([db, dbName].join('/'), {skip_setup: true});
+      // Fire off a compact when we load a DB for the first time.
+      dbObj.compact();
+    }
+    return dbObj!;
+  };
+
   // Add PBEM API
   const dbGameIndex = new PouchDb(db + '/pbem-games');
+  await dbGameIndex.createIndex({index: {fields: ['phase']}});
   app.post('/pbem/createSystem', superLogin.requireAuth, async (req: any, res: any) => {
     // userID == dbName == pbem$ prefix.
     const userId = 'pbem$' + req.user._id;
@@ -109,25 +126,13 @@ export async function run(gameCode: string, webAppCompiled: string | number,
       index: 0,
     };
 
-    let gameId = 'game';
-    while (true) {
-      gameId = 'game' + dbGameIndex.getUuid().substr(0, 8);
-      try {
-        await dbGameIndex.put({ _id: gameId });
-        break;
-      }
-      catch (e) {
-        if (e.name !== 'conflict') throw e;
-      }
-    }
-
     const gameHost: DbUserId = {
       type: 'system',
-      id: gameId,
+      id: 'gameId',
     };
     const gameDoc: DbGameDoc = {
-      _id: gameId,
-      game: gameId,
+      _id: 'gameId',
+      game: 'gameId',
       type: 'game-data',
       host: gameHost,
       hostName: s.players[0].name,
@@ -139,10 +144,30 @@ export async function run(gameCode: string, webAppCompiled: string | number,
       phase: 'staging',
       settings: s,
     };
+
+    let gameId = 'game';
+    while (true) {
+      gameId = 'game' + dbGameIndex.getUuid().substr(0, 8);
+      gameDoc._id = gameId;
+      gameDoc.game = gameId;
+      gameHost.id = gameId;
+      try {
+        const resp = await dbGameIndex.put(gameDoc);
+        (gameDoc as any)._rev = resp.rev;
+        break;
+      }
+      catch (e) {
+        if (e.name !== 'conflict') throw e;
+      }
+    }
     
     const dbGame = new PouchDb<DbGame>([db, gameId].join('/'));
     // Will trigger host invitation / membership.
-    await dbGame.put(gameDoc);
+    // Use replicate, since future changes to game-data will replicate to 
+    // dbGameIndex
+    await dbGameIndex.replicate.to(dbGame, {
+      doc_ids: [gameDoc._id!],
+    });
 
     let foundMember = false;
     while (!foundMember) {
@@ -157,6 +182,17 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     }
 
     res.json({ id: gameId });
+  });
+  app.post('/pbem/list', superLogin.requireAuth, async (req, res) => {
+    const r = await dbGameIndex.find({
+      selector: {
+        phase: 'staging',
+        ended: {$exists: false},
+        initNeeded: {$exists: false},
+      },
+      limit: 10,
+    });
+    res.json(r.docs);
   });
 
   let isProduction: boolean = typeof webAppCompiled === 'string';
@@ -182,7 +218,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   await _connectUserCode(gameCode, isProduction);
 
   // Now run our service
-  _runServer(db);
+  _runServer(db, dbResolver);
 }
 
 
@@ -328,27 +364,13 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
 
 
 /** Note that db includes user:pass information. */
-function _runServer(db: string) {
+function _runServer(db: string, 
+    dbResolver: {(dbName: string): PouchDB.Database<DbUser> | undefined}) {
   // Ensure that _global_changes exists
   const globalChanges = new PouchDb(db + '/_global_changes');
   setInterval(globalChanges.compact.bind(globalChanges), 10 * 1000);
 
-  const dbCache = new NodeCache({
-    stdTTL: 5 * 60,
-    useClones: false,
-  });
-  const dbResolver = (dbName: string) => {
-    let dbObj: PouchDB.Database<DbUser> | undefined;
-    dbObj = dbCache.get(dbName);
-    if (dbObj === undefined) {
-      dbObj = new PouchDb<DbUser>([db, dbName].join('/'), {skip_setup: true});
-      // Fire off a compact when we load a DB for the first time.
-      dbObj.compact();
-    }
-    return dbObj!;
-  };
-
-  ServerGameDaemonController.init(new PouchDb('pbem-daemon'));
+  ServerGameDaemonController.init(new PouchDb([db, 'pbem-daemon'].join('/')));
 
   const c = globalChanges.changes({
     live: true,
@@ -361,7 +383,7 @@ function _runServer(db: string) {
       return;
     }
     console.log(dbName);
-    const dbConn = dbResolver(dbName);
+    const dbConn = dbResolver(dbName)!;
     ServerGameDaemonController.runForDb(dbConn, dbResolver, 'remote', 
       undefined);
   });

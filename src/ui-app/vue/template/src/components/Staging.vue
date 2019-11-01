@@ -17,7 +17,7 @@
             template(v-if="!player")
               span Empty slot
               input(type="button" value="Move here (TODO)")
-              div(v-if="isHost")
+              div(v-if="isHost && isLocal")
                 input(type="button" value="Add local player..." @click="playerLocalSelect(idx)")
                 //- input(type="button" value="Add friend...")
           .overlay(v-if="playerLocalSelectIndex >= 0")
@@ -103,6 +103,10 @@ export default Vue.extend({
     return {
       // When we retrieve the settings object, we also get host information.
       host: undefined as PbemDbId | undefined,
+      // And creator information
+      createdBy: undefined as PbemDbId | undefined,
+      // Flag for game is local.
+      isLocal: false,
       // Flag used to prevent rewriting settings when not desired.
       inCallback: false,
       // Data for choosing local players
@@ -114,7 +118,9 @@ export default Vue.extend({
   },
   computed: {
     isHost(): boolean {
-      return this.settings !== undefined && this.$pbemServer.userCurrentMatches(this.host!);
+      let isHost = this.settings !== undefined && this.$pbemServer.userCurrentMatches(this.host!);
+      let isCreator = this.settings !== undefined && this.createdBy && this.$pbemServer.userCurrentMatches(this.createdBy);
+      return isHost || isCreator;
     },
     playersLength: {
       get: function(this: any) { return this.settings && this.settings!.players.length; },
@@ -156,12 +162,14 @@ export default Vue.extend({
       const id = this.$route.params.id;
       this.settingsWatch = await ServerLink.stagingLoad<Settings>(
         id,
-        ({isPastStaging, host, settings}) => {
+        ({isLocal, isPastStaging, host, createdBy, settings}) => {
           if (isPastStaging) {
             this.$router.replace({name: 'game', params: {id}});
           }
           else {
             this.host = host;
+            this.createdBy = createdBy;
+            this.isLocal = isLocal;
             this.ignoreNextSettingsChange();
             this.settings = settings;
           }

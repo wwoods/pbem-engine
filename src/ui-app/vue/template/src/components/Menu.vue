@@ -62,6 +62,15 @@
                 )
                 span {{gameName(game)}}
                 span(v-if="game.gamePhase === 'staging'") &nbsp;(Staging)
+          .title Available games
+          .select-list
+            .select(
+                v-for="game of gamesRemoteAvailable"
+                v-if="!onlineGameIsAlreadyJoined(game)"
+                :gameId="game.game"
+                @click="onlineGameJoin(game)"
+                )
+              span {{gameName(game)}}
           div(style="margin-bottom: 0.25em")
             input(type="button" @click="createSystem()" value="New online game")
 
@@ -143,7 +152,7 @@ import PouchDb from 'pbem-engine/lib/server/pouch';
 import {Settings} from '@/game';
 
 import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
-import {DbUserGameMembershipDoc} from 'pbem-engine/lib/server/db';
+import {DbGameDoc, DbUserGameMembershipDoc} from 'pbem-engine/lib/server/db';
 
 export default Vue.extend({
   data() {
@@ -152,9 +161,11 @@ export default Vue.extend({
       pbemTitle: document.title,
       gamesLocal: [] as Array<DbUserGameMembershipDoc>,
       gamesRemote: [] as Array<DbUserGameMembershipDoc>,
+      gamesRemoteAvailable: [] as Array<DbGameDoc>,
       gamesEnded: [] as Array<DbUserGameMembershipDoc>,
       users: [] as Array<DbLocalUserDefinition>,
       userRemoteToken: '' as string | undefined,
+      onlineCheckCallback: null as any,
       onlineUsername: '',
       onlineEmail: '',
       onlinePassword: '',
@@ -164,6 +175,12 @@ export default Vue.extend({
   async mounted() {
     await this.$pbemServer.readyEvent;
     await this.userLogin(this.$pbemServer.userLocalId);
+  },
+  beforeDestroy() {
+    if (this.onlineCheckCallback !== null) {
+      clearInterval(this.onlineCheckCallback);
+      this.onlineCheckCallback = null;
+    }
   },
   methods: {
     async createLocal() {
@@ -247,6 +264,10 @@ export default Vue.extend({
     },
     async onlineCheck() {
       this.onlineRegisterErrors = '';
+      if (this.onlineCheckCallback !== null) {
+        clearInterval(this.onlineCheckCallback);
+        this.onlineCheckCallback = null;
+      }
       
       // Force a redraw.
       this.userRemoteToken = this.$pbemServer.userCurrent!.remoteToken;
@@ -282,6 +303,15 @@ export default Vue.extend({
           }
         }
       }
+
+      if (u.remoteToken === undefined) {
+        return;
+      }
+
+      this.onlineCheckCallback = setInterval(() => {
+        this.onlineGameList(true).catch(console.log);
+      }, 5000);
+      await this.onlineGameList();
     },
     async onlineCheckAccountExists(): Promise<boolean> {
       const u = this.$pbemServer.userCurrent!;
@@ -297,6 +327,42 @@ export default Vue.extend({
       catch (e) {
       }
       return true;
+    },
+    async onlineGameList(noClear?: boolean) {
+      if (!noClear) {
+        this.gamesRemoteAvailable = [];
+      }
+
+      const u = this.$pbemServer.userCurrent!;
+      const games = await axios.post('/pbem/list', {}, {
+        headers: {
+          Authorization: 'Bearer ' + u.remoteToken,
+        },
+      });
+
+      let docs = games.data as DbGameDoc[];
+      this.gamesRemoteAvailable = docs;
+    },
+    onlineGameIsAlreadyJoined(game: DbGameDoc) {
+      return this.gamesRemote.map(x => x.game).indexOf(game.game) !== -1;
+    },
+    async onlineGameJoin(game: DbGameDoc) {
+      // We just make a membership document, and the server takes care of the 
+      // rest.
+      let hasSpace = false;
+      for (const u of game.settings.players) {
+        if (!u) {
+          hasSpace = true;
+          break;
+        }
+      }
+      if (!hasSpace) {
+        this.onlineSetErrors('Game is full, cannot join');
+        return;
+      }
+
+      await this.$pbemServer.gameJoin(game);
+      this.$router.push({name: 'staging', params: {id: game._id!}});
     },
     async onlineLogin() {
       this.onlineRegisterErrors = '';

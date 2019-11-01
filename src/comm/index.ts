@@ -19,7 +19,7 @@ import {_GameHooks, _PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId
 import {ServerError} from '../server/common';
 export {ServerError} from '../server/common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
-  DbUserId, DbUserIdsDoc} from '../server/db';
+  DbUserId, DbUserIdsDoc, DbGameAddress} from '../server/db';
 import {ServerGameDaemonController} from '../server/gameDaemonController';
 import {GamePlayerWatcher} from '../server/gamePlayerWatcher';
 
@@ -226,6 +226,59 @@ export class _ServerLink {
   }
 
 
+  /** Join a remote game. */
+  async gameJoin(game: DbGameDoc): Promise<void> {
+    const u = this.userCurrent!;
+    if (u.remoteId === undefined) {
+      throw new ServerError.ServerError('Not logged in');
+    }
+
+    const memberDoc: DbUserGameMembershipDoc = {
+      _id: DbUserGameMembershipDoc.getId(game._id!, u.remoteId!),
+      type: 'game-response-member',
+      game: game._id!,
+      gameAddr: {
+        host: game.host,
+        id: game._id!,
+      },
+      hostName: game.hostName,
+      status: 'joined',
+      userId: {
+        type: 'remote',
+        id: u.remoteId!,
+      },
+    };
+
+    // Start looking for changes before putting document, to avoid race cond
+    const p = new Promise((resolve, reject) => {
+      // Our operation is over either when we get the DbGameDoc, or when the
+      // game-repsonse-member we just created gets deleted.
+      const c = this._dbUserCurrent!.changes({
+        live: true,
+        since: 'now',
+        doc_ids: [memberDoc._id!, game._id!],
+      });
+      c.on('change', (info) => {
+        if (info.id === memberDoc._id!) {
+          if (info.deleted) {
+            reject({message: 'Join was rejected'});
+          }
+          // Any other change shouldn't matter.
+        }
+        else {
+          // Game doc, joined OK
+          resolve();
+        }
+      });
+      c.on('error', reject);
+    });
+
+    await this._dbUserCurrent!.put(memberDoc);
+
+    await p;
+  }
+
+
   async gameListMembership(): Promise<DbUserGameMembershipDoc[]> {
     await this._checkSynced();
     const {docs} = await this._dbUserCurrent!.find({selector: {
@@ -305,9 +358,10 @@ export class _ServerLink {
 
     // Switch to first player without turn finished.
     let firstPlayer = 0;
-    for (const w of this._localPlayerWatchers) {
+    for (let i = 0, m = this._localPlayerWatchers.length; i < m; i++) {
+      const w = this._localPlayerWatchers[i];
       if (!w.isTurnEnded) {
-        firstPlayer = w.playerIdx;
+        firstPlayer = i;
         break;
       }
     }
@@ -406,6 +460,7 @@ export class _ServerLink {
     await this._dbUserCurrent.bulkDocs([
       gameDoc as any,
       {
+        _id: DbUserGameMembershipDoc.getId(gameDoc._id!, gameHost.id),
         type: 'game-response-member',
         userId: gameHost,
         gameAddr: {
@@ -445,7 +500,8 @@ export class _ServerLink {
   /** For the current user, load the giving game in 'staging' phase.
    * */
   async stagingLoad<Settings extends _PbemSettings>(id: string,
-      callback: (arg: {host: PbemDbId, isPastStaging: boolean, settings: Settings}) => void,
+      callback: (arg: {host: PbemDbId, createdBy: PbemDbId, isLocal: boolean,
+        isPastStaging: boolean, settings: Settings}) => void,
       callbackError: (error: Error) => void,
       ): Promise<PouchDB.FindContinuousCancel | undefined> {
     // Ensure that, if possible, we have the requisite game document.
@@ -463,6 +519,8 @@ export class _ServerLink {
             `Id not a game? ${id}`);
         callback({
           host: d.host as PbemDbId,
+          createdBy: d.createdBy as PbemDbId,
+          isLocal: d.host.type === 'local',
           isPastStaging: d.phase !== 'staging',
           settings: d.settings as Settings,
         });
@@ -510,6 +568,7 @@ export class _ServerLink {
     await this._dbUserCurrent!.bulkDocs([
       // Create the invitation block, which triggers the needed replications.
       {
+        _id: DbUserGameInvitationDoc.getId(d._id!, playerId.id),
         type: 'game-invitation',
         game: d._id,
         userId: playerId,
