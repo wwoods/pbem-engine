@@ -717,9 +717,9 @@ export class _ServerLink {
       this._dbUsersLoggedIn.set(userIdLocal, new PouchDb<DbUser>(userIdLocal));
 
       // When we load a db, compact it, ensure indices exist
-      const db = await this._dbUsersLoggedIn.get(userIdLocal)!;
+      const db = this._dbUsersLoggedIn.get(userIdLocal)!;
       db.setMaxListeners(100);
-      await db.compact();
+      db.compact().catch(console.error);
 
       // Local synchronization code.  More fancy, since it requires watching
       // changes.

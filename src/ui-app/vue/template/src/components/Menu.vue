@@ -184,7 +184,6 @@ export default Vue.extend({
   },
   methods: {
     async createLocal() {
-      console.log(this);
       await this.$pbemServer.createLocal(async (s: Settings) => {
         // TODO host = {type: 'local', id: user.localId}.
         // Can write settings here as desired needed, for e.g. a game campaign.
@@ -374,8 +373,6 @@ export default Vue.extend({
           username: u.remoteName,
           password: this.onlinePassword,
         });
-
-        console.log(login);
 
         // Save token, password, and user DB; update local registration.
         const token = login.data.token;

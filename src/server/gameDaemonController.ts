@@ -437,7 +437,6 @@ export namespace ServerGameDaemonController {
     const now = Date.now();
     if (token.time !== undefined && now - token.time < timeout) {
       // Potentially another service running.  Let its heart beat.
-      _debug(`Waiting for ${id}`);
       await sleep(timeout - (now - token.time) + heartbeat);
     }
 
