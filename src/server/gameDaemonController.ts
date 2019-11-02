@@ -18,6 +18,13 @@ type DaemonStatus = {
   _id: string;
   _rev?: string;
 
+  // Time (as in Date.now()) in MS at which the last heartbeat was sent.  This
+  // is important for reducing user lag - otherwise, users would need to wait
+  // several seconds.
+  //
+  // May also be undefined if a watcher has knowingly gone defunct.
+  time: number | undefined;
+
   // Sequence number to which this daemon is up-to-date (type dependent on
   // DB provider - like with like, so just pass it along as we get it).
   seq: number | string;
@@ -32,8 +39,10 @@ namespace DaemonStatus {
 }
 
 const heartbeat = 700;
-const timeout = heartbeat * 2.5;
-const backoff = 10;
+// If a heartbeat has been seen within this time, wait this time to start...
+const timeout = heartbeat * 5;
+
+const isBrowser = typeof window !== 'undefined';
 
 const archiveGamesToKeep = 3;
 
@@ -48,8 +57,20 @@ const _debug = createDebug('pbem-engine:ServerGameDaemonController');
 const _localCancels: {[key: string]: boolean} = {};
 
 export namespace ServerGameDaemonController {
-  export function init(dbDaemon: PouchDB.Database) {
+  export async function init(dbDaemon: PouchDB.Database) {
     _daemons = dbDaemon;
+    if (typeof localStorage !== 'undefined') {
+      const daemonsToStop: string | undefined = localStorage.daemonRefresh;
+      delete localStorage.daemonRefresh;
+      if (daemonsToStop !== undefined) {
+        console.log('Undefining ' + daemonsToStop);
+        for (const d of daemonsToStop.split(',')) {
+          const doc = await _daemons.get(d) as DaemonStatus;
+          doc.time = undefined;
+          await _daemons.put(doc);
+        }
+      }
+    }
   }
 
   /** Start the Daemon corresponding to a certain activity - either a user's
@@ -147,7 +168,7 @@ export namespace ServerGameDaemonController {
 
       // For local, as long as the user keeps the tab/app open, we should be
       // ready to assume responsibility for actions.
-      await sleep(timeout * backoff);
+      await sleep(timeout);
     }
   }
 
@@ -400,6 +421,9 @@ export namespace ServerGameDaemonController {
   }
 
 
+  /** Procure a DaemonToken, which makes it reasonably certain that we're the
+   * only processor running ("locally" - as in this device or server cluster).
+   * */
   async function _daemonToken(id: string, db: PouchDB.Database<DbUser>) {
     let token: DaemonStatus;
     try {
@@ -407,13 +431,18 @@ export namespace ServerGameDaemonController {
     }
     catch (e) {
       if (e.name !== 'not_found') throw e;
-      token = {_id: id, seq: 0};
+      token = {_id: id, seq: 0, time: undefined};
     }
 
-    // Wait an amount of time s.t. a currently-running daemon would issue its
-    // heartbeat.
-    await sleep(timeout);
+    const now = Date.now();
+    if (token.time !== undefined && now - token.time < timeout) {
+      // Potentially another service running.  Let its heart beat.
+      _debug(`Waiting for ${id}`);
+      await sleep(timeout - (now - token.time) + heartbeat);
+    }
+
     try {
+      token.time = Date.now();
       const r = await _daemons.put(token);
       token._rev = r.rev;
     }
@@ -463,27 +492,51 @@ export class DaemonToken {
     this._token = tokenDoc;
     this.debug('started');
 
-    this._heartbeatInterval = setInterval(async () => {
-      if (this.defunct) {
-        clearInterval(this._heartbeatInterval);
-        this.debug('Stopped');
-        return;
+    const onUnload = () => {
+      // No guarantee, but try to mark ourselves as defunct.
+      if (isBrowser) {
+        if (localStorage.daemonRefresh === undefined) {
+          localStorage.daemonRefresh = this._token._id;
+        }
+        else {
+          localStorage.daemonRefresh += ',' + this._token._id;
+        }
       }
+    };
+    isBrowser && window.addEventListener("beforeunload", onUnload);
 
+    this._heartbeatInterval = setInterval(async () => {
       try {
         // Put latest seq handling information in database, and update 
         // heartbeat.
+        if (this.defunct) {
+          this._token.time = undefined;
+        }
+        else {
+          this._token.time = Date.now(); 
+        }
         const r = await _daemons.put(this._token);
         this._token._rev = r.rev;
+        if (this._token.time === undefined) {
+          // We've gone offline due to defunction, and have written that.
+          clearInterval(this._heartbeatInterval);
+          this.debug('stopped');
+          isBrowser && window.removeEventListener("beforeunload", onUnload);
+          return;
+        }
       }
       catch (e) {
         if (e.name === 'conflict') {
-          // Someone else got the winning revision.
+          // Someone else got the winning revision - defunct, but skip attempt
+          // to write.
+          clearInterval(this._heartbeatInterval);
           this.defunct = true;
-          this.debug('Interrupted - conflict on put()');
+          this.debug('interrupted - conflict on put()');
+          isBrowser && window.removeEventListener("beforeunload", onUnload);
+          return;
         }
 
-        this.debug(`Error: ${e}`);
+        this.debug(`error: ${errFormat(e)}`);
       }
     }, heartbeat);
   }

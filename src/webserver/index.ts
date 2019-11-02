@@ -218,7 +218,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   await _connectUserCode(gameCode, isProduction);
 
   // Now run our service
-  _runServer(db, dbResolver);
+  await _runServer(db, dbResolver);
 }
 
 
@@ -364,13 +364,13 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
 
 
 /** Note that db includes user:pass information. */
-function _runServer(db: string, 
+async function _runServer(db: string, 
     dbResolver: {(dbName: string): PouchDB.Database<DbUser> | undefined}) {
   // Ensure that _global_changes exists
   const globalChanges = new PouchDb(db + '/_global_changes');
   setInterval(globalChanges.compact.bind(globalChanges), 10 * 1000);
 
-  ServerGameDaemonController.init(new PouchDb([db, 'pbem-daemon'].join('/')));
+  await ServerGameDaemonController.init(new PouchDb([db, 'pbem-daemon'].join('/')));
 
   const c = globalChanges.changes({
     live: true,

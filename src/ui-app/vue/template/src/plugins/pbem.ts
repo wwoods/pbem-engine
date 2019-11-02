@@ -20,7 +20,7 @@ export const pbemPlugin = {
     _pbemGameSetup(Settings.Hooks, State.Hooks, Action.Types);
 
     // Start running local daemon
-    ServerGameDaemonController.init(new PouchDb('pbem-daemon'));
+    ServerGameDaemonController.init(new PouchDb('pbem-daemon')).catch(console.error);
 
     // Initialize ServerLink
     ServerLink.init();

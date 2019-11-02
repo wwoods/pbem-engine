@@ -252,6 +252,8 @@ export default Vue.extend({
 
       // Called after remote DB updated, so nothing about that needed.
       await this.$pbemServer.userLogin(userLocalId);
+      // Trigger a local rebuild
+      this.onlineUsername = this.$pbemServer.userCurrent!.name;
 
       // Check online status.
       await this.onlineCheck();

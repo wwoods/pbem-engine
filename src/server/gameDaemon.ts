@@ -105,6 +105,11 @@ export class ServerGameDaemon {
   /** Handle any game-related document change that is not the game itself.
    * */
   async _handleGameDoc(doc: DbUser) {
+    if (doc._deleted && ['game-response-action'].indexOf(doc.type) !== -1) {
+      //Shortcut to avoid a few "await" calls.
+      return;
+    }
+    
     this._debug(`handleDoc ${doc.type} / ${doc._id} -- ${this._watcher}`);
     await this._handleGameDocBeforeWatcher(doc);
 
@@ -251,7 +256,9 @@ export class ServerGameDaemon {
 
         // The watcher MUST run for a minute, because on initialization it 
         // checks if the round is ended, and if so, it starts the next round.
-        await this._watcherEnsureRunning();
+        if (this._watcher === undefined) {
+          await this._watcherEnsureRunning();
+        }
       }
     }
     else if (doc.type === 'game-invitation') {
@@ -274,7 +281,9 @@ export class ServerGameDaemon {
       await this._handleUserResponseUpdate(doc.userId, userDb, doc);
     }
     else if (doc.type === 'game-response-action') {
-      await this._watcherEnsureRunning();
+      if (this._watcher === undefined) {
+        await this._watcherEnsureRunning();
+      }
     }
     else if (doc.type === 'game-response-member') {
       // These documents are replicated to our database as a special case,
