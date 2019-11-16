@@ -8,7 +8,7 @@ Vue.use(Router);
 // @/ui/pbem/Menu.
 
 export default new Router({
-  mode: 'history',
+  mode: 'hash',
   base: process.env.BASE_URL,
   routes: [
     {

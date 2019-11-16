@@ -107,7 +107,12 @@ export async function run(gameCode: string, webAppCompiled: string | number,
 
   // Add PBEM API
   const dbGameIndex = new PouchDb(db + '/pbem-games');
-  await dbGameIndex.createIndex({index: {fields: ['phase']}});
+  try {
+    await dbGameIndex.createIndex({index: {fields: ['phase']}});
+  }
+  catch (e) {
+    console.warn(`Unable to createIndex: ${e}`);
+  }
   app.post('/pbem/createSystem', superLogin.requireAuth, async (req: any, res: any) => {
     // userID == dbName == pbem$ prefix.
     const userId = 'pbem$' + req.user._id;
@@ -199,13 +204,16 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   if (isProduction) {
     // Production mode - web app was compiled
     app.use(express.static(webAppCompiled as string));
-    // Support HTML5 history
-    app.all('/game*', (req: any, res: any) => {
-      res.sendFile('index.html', {root: webAppCompiled});
-    });
-    app.all('/staging*', (req: any, res: any) => {
-      res.sendFile('index.html', {root: webAppCompiled});
-    });
+    if (false) {
+      // Support HTML5 history
+      // NOTE: Doesn't play well with PWA.
+      app.all('/game*', (req: any, res: any) => {
+        res.sendFile('index.html', {root: webAppCompiled});
+      });
+      app.all('/staging*', (req: any, res: any) => {
+        res.sendFile('index.html', {root: webAppCompiled});
+      });
+    }
   }
   else {
     // Proxy to development server

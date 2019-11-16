@@ -246,7 +246,7 @@ export namespace ServerGameDaemonController {
               if (['invited', 'joined'].indexOf(doc.status) === -1) {
                 // Want to delete this document as soon as it's been replicated.
                 doc._deleted = true;
-                db.put(doc);
+                db.put(doc).catch((e) => {console.error(errFormat(e));});
               }
               resolve();
             });
