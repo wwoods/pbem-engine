@@ -4,7 +4,7 @@ import util from 'util';
 
 import {ServerError} from './common';
 import {DbGame, DbGameDoc, DbUserGameInvitationDoc, DbUserGameMembershipDoc,
-  DbUser, DbUserId, DbUserActionDoc, DbGameStateDoc} from './db';
+  DbUser, DbUserId, DbUserActionDoc, DbUserActionRequestDoc, DbGameStateDoc} from './db';
 import {DaemonToken} from './gameDaemonController';
 import {GamePlayerWatcher} from './gamePlayerWatcher';
 import PouchDb from './pouch';
@@ -37,6 +37,7 @@ export class ServerGameDaemon {
   // DBs open for replicating to, or undefined, if game host != context.  That
   // is, a local context for a remote game is not responsible for replication.
   _replications: PouchDB.Database<DbUser>[] | undefined;
+  _replicationsPlayers: {[key: string]: PouchDB.Database<DbUser>} | undefined;
   _token: DaemonToken;
   _watcher?: GamePlayerWatcher;
 
@@ -106,8 +107,20 @@ export class ServerGameDaemon {
    * */
   async _handleGameDoc(doc: DbUser) {
     if (doc._deleted && ['game-response-action'].indexOf(doc.type) !== -1) {
-      //Shortcut to avoid a few "await" calls.
-      return;
+      // Shortcut to avoid a few "await" calls.
+      // ... but do replicate the deletion back to its source
+      const i: number = (doc as DbUserActionRequestDoc).action.playerOrigin;
+      this._debug(`Considering delete of ${doc._id} for ${i}`);
+      if (this._replicationsPlayers !== undefined) {
+        const rp = this._replicationsPlayers[i];
+        if (rp !== undefined) {
+          const repl = this._db.replicate.to(rp, {
+            doc_ids: [doc._id!],
+          });
+          await repl;
+        }
+      }
+      //return;
     }
     
     this._debug(`handleDoc ${doc.type} / ${doc._id} -- ${this._watcher}`);
@@ -329,6 +342,7 @@ export class ServerGameDaemon {
     this._creator = settings.createdBy;
     this._host = settings.host;
     this._replications = undefined;
+    this._replicationsPlayers = undefined;
 
     if (settings.initNeeded) {
       // Cannot check settings until first initialization.
@@ -340,7 +354,9 @@ export class ServerGameDaemon {
     if (contextIsLocal === hostIsLocal) {
       // Set up replications - we're in the right spot
       this._replications = [];
-      for (const u of settings.settings.players) {
+      this._replicationsPlayers = {};
+      for (let i = 0, m = settings.settings.players.length; i < m; i++) {
+        const u = settings.settings.players[i];
         if (!u) continue;
 
         const dbId = u.dbId as DbUserId | undefined;
@@ -351,6 +367,7 @@ export class ServerGameDaemon {
           throw new ServerError.ServerError("Bad user?");
         }
         this._replications.push(dbOther);
+        this._replicationsPlayers[i] = dbOther;
       }
     }
     if (this._context === 'local') {

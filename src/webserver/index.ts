@@ -1,24 +1,27 @@
 /** The webserver which does two things:
- * 
+ *
  * 1. Serves HTTP requests to deliver a compiled version of the app.
- * 
+ *
  * 2. Runs the server-side game logic.
  * */
 
 import bodyParser from 'body-parser';
-import {execFile} from 'child_process';
+import {ChildProcess, execFile, spawn} from 'child_process';
 import chokidar from 'chokidar';
 import createDebug from 'debug';
 import express from 'express';
 import expressHttpProxy from 'express-http-proxy';
 import expressMung from 'express-mung';
+//import expressPouch from 'express-pouchdb';
 import {promises as fs} from 'fs';
 import http from 'http';
 import NodeCache from 'node-cache';
 import path from 'path';
 import process from 'process';
+import secureRandomPassword from 'secure-random-password';
 import SuperLogin from '@wwoods/superlogin';
 import tmp from 'tmp-promise';
+import url from 'url';
 
 import {_pbemGameSetup, _PbemSettings} from '../game';
 import {sleep} from '../server/common';
@@ -28,32 +31,188 @@ import PouchDb from '../server/pouch';
 
 /** NOTE: dbPath includes username and password! */
 export async function run(gameCode: string, webAppCompiled: string | number, 
-    dbPath: string | undefined) {
+    dbPath: string) {
   createDebug.enable('pbem-engine:*');
 
   let app = express();
   app.set('port', process.env.PORT || 8080);
 
+  //TODO figure out why createSystem() endpoint never returns... after github issue on _global_changes.
+
   // The application needs an easy way to refer to the remote database.  To
   // enable this, we route it next to the application.
-  const db = dbPath !== undefined ? dbPath : 'http://localhost:5984';
-  if (db.indexOf('//') === -1) throw new Error('DB path must have http://');
-  const dbNoProtocol = db.slice(db.indexOf('//')+2);
-  const dbAt = dbNoProtocol.indexOf('@');
-  const dbNoUserInfo = dbNoProtocol.slice(dbAt + 1);
-  const dbUserInfo = dbAt === -1 ? ':' : dbNoProtocol.substr(0, dbAt);
-  app.use('/db', expressHttpProxy(db));
+  let dbIsRemote: boolean = dbPath.indexOf('//') !== -1;
+  let dbUser: string, dbPassword: string, dbProtocol: string, dbHost: string;
+
+  let PouchInternal = PouchDb.defaults({prefix: dbPath});
+  let dbExpressHandler: any;
+  if (dbIsRemote) {
+    const dbNoProtocol = dbPath.slice(dbPath.indexOf('//')+2);
+    const dbAt = dbNoProtocol.indexOf('@');
+    const dbNoUserInfo = dbNoProtocol.slice(dbAt + 1);
+    const dbUserInfo = dbAt === -1 ? ':' : dbNoProtocol.substr(0, dbAt);
+
+    dbUser = dbUserInfo.split(':')[0];
+    dbPassword = dbUserInfo.split(':')[1];
+    dbProtocol = dbPath.slice(0, dbPath.indexOf('//')+2);
+    dbHost = dbNoUserInfo;
+
+    dbExpressHandler = expressHttpProxy(dbProtocol + dbNoUserInfo);
+  }
+  else {
+    if (dbPath !== 'local') {
+      throw new Error('Not implemented: local storage.  Basically, '
+        + "since pouchdb-server doesn't work with _global_changes, "
+        + "and docker binds don't work on windows (plus permission issues "
+        + "on Linux), local storage uses a named volume.");
+    }
+    //if (!dbPath.endsWith('/')) throw new Error('Db path must end in "/"');
+    //// Ensure folder exists (trailing slash important)
+    //try {
+    //  await fs.mkdir(dbPath);
+    //}
+    //catch (e) {
+    //  if (e.code !== 'EEXIST') throw e;
+    //}
+
+    // It turns out, pouchdb-server doesn't work as _global_changes is
+    // unsupported at this time (https://github.com/pouchdb/pouchdb-server/issues/421).
+    // Instead, we'll run a specific couchdb docker container on a random port
+    // s.t. we can access it and still store files locally.
+    //
+    // https://hub.docker.com/_/couchdb
+    // Can use COUCHDB_USER, COUCHDB_PASSWORD for local admin.
+    // /opt/couchdb/data is where data goes...
+
+    const couchVersion = 'couchdb:2.3.1';
+
+    dbUser = 'pbemAdminUser';
+    // Choose a completely random, one-time password.  Should only be accessed
+    // through e.g. superlogin.
+    dbPassword = secureRandomPassword.randomPassword({
+      length: 32,
+      characters: secureRandomPassword.lower + secureRandomPassword.upper
+        + secureRandomPassword.digits,
+    });
+    console.log(`PBEM /db Credentials: ${dbUser} / ${dbPassword}`);
+    dbProtocol = 'http://';
+    // Would use "localhost", but e.g. Docker has issues, so keep it to
+    // 127.0.0.1
+    dbHost = `127.0.0.1:${app.get('port')}/db`;
+
+    const dbRoute = `http://127.0.0.1:${app.get('port')+1}`
+    dbExpressHandler = expressHttpProxy(dbRoute);
+
+    // dbPath used when creating DBs -- needs uname + password
+    dbPath = `${dbProtocol}${dbUser}:${dbPassword}@${dbHost}`;
+    PouchInternal = PouchDb.defaults({prefix: dbPath});
+
+    /* Old code, for express-pouch.
+    const pouchApp = expressPouch(
+      PouchInternal,
+      {
+        logPath: dbPath + 'log.txt',
+        inMemoryConfig: true,
+      },
+    );
+    const p = new Promise((resolve, reject) => {
+      pouchApp.couchConfig.set('admins', dbUser, dbPassword, (err: any) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    await p;
+    dbExpressHandler = pouchApp;
+     */
+
+    // Instead, launch couchdb
+    let couchDb: ChildProcess;
+    try {
+      //const volName = path.resolve(dbPath);
+      const volName = path.resolve(gameCode).replace(/[\\\/:]/g, '--').replace(/^-*/, '');
+      console.log(`DOCKER VOLUME IS ${volName}`);
+      couchDb = spawn('docker',
+        ['run', '--rm',
+          '-e', `COUCHDB_USER=${dbUser}`,
+          '-e', `COUCHDB_PASSWORD=${dbPassword}`,
+          '-p', `${app.get("port")+1}:5984`,
+          '--mount', `type=volume,src=${volName},dst=/opt/couchdb/data`,
+          couchVersion,
+        ]);
+    }
+    catch (e) {
+      console.log('Using a local DB path requires both docker to be installed '
+        + `and for port ${app.get("port")+1} to be available.  This is `
+        + 'so that a local CouchDB instance may be launched.');
+      throw e;
+    }
+    couchDb.on('close', (code: number) => {
+      process.exitCode = code;
+      console.log('couchdb exited');
+      process.exit();
+    });
+    process.on('exit', () => {
+      couchDb.kill();
+    });
+
+    // Wait for server to be available
+    const tryWait = 100; //ms
+    let tries = 100;
+    while (true) {
+      const p = new Promise((resolve, reject) => {
+        const req = http.request(dbRoute, (r) => {
+          // Server is accessible, all OK
+          resolve();
+        });
+        req.on('error', (e) => {
+          setTimeout(() => {reject(e)}, tryWait);
+        });
+        req.end();
+      });
+      try {
+        await p;
+        console.log('couchdb CONNECTION OK');
+        break;
+      }
+      catch (e) {
+        tries -= 1;
+        if (tries === 0) {
+          throw e;
+        }
+      }
+    }
+  }
+  app.use('/db', dbExpressHandler);
+
+  // Either way,  as per https://github.com/pouchdb/pouchdb-server/issues/183,
+  // re-route Fauxton urls which were malformed.
+  const fauxtonIntercept = (req: any, res: any, next: any) => {
+    let referer = req.header('Referer');
+    if (!referer) return next();
+
+    let parsed = url.parse(referer);
+    if (0 === parsed.pathname!.indexOf('/db/_utils/')) {
+      return dbExpressHandler(req, res);
+    }
+    return next();
+  };
+  app.use(fauxtonIntercept);
 
   app.use(bodyParser.json());
   app.use(bodyParser.urlencoded({ extended: false }));
 
-  const protocolAndHost = db.split('//');
+  if (!dbIsRemote) {
+    // IMPORTANT: before instantiating SuperLogin(), must have DB accessible.
+    // When using local DB via express-pouch, that's now.
+    http.createServer(app).listen(app.get('port'));
+  }
+
   const config = {
     dbServer: {
-      protocol: protocolAndHost[0] + '//',
-      host: dbNoUserInfo,
-      user: dbUserInfo.split(':')[0],
-      password: dbUserInfo.split(':')[1],
+      protocol: dbProtocol,
+      host: dbHost,
+      user: dbUser,
+      password: dbPassword,
       userDB: 'sl-users',
       couchAuthDB: '_users',
     },
@@ -80,7 +239,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
       // Overwrite DB with appropriate, routed path.
       for (const dbName of Object.keys(b.userDBs)) {
         let db = b.userDBs[dbName];
-        const splitter = '@' + dbNoUserInfo + '/';
+        const splitter = '@' + dbHost + '/';
         db = db.split(splitter).slice(1).join(splitter);
         b.userDBs[dbName] = db;
       }
@@ -98,7 +257,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     let dbObj: PouchDB.Database<DbUser> | undefined;
     dbObj = dbCache.get(dbName);
     if (dbObj === undefined) {
-      dbObj = new PouchDb<DbUser>([db, dbName].join('/'), {skip_setup: true});
+      dbObj = new PouchInternal<DbUser>(dbName, {skip_setup: true});
       // Fire off a compact when we load a DB for the first time.
       dbObj.compact();
     }
@@ -106,7 +265,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
   };
 
   // Add PBEM API
-  const dbGameIndex = new PouchDb(db + '/pbem-games');
+  const dbGameIndex = new PouchInternal('pbem-games');
   try {
     await dbGameIndex.createIndex({index: {fields: ['phase']}});
   }
@@ -166,7 +325,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
       }
     }
     
-    const dbGame = new PouchDb<DbGame>([db, gameId].join('/'));
+    const dbGame = new PouchInternal<DbGame>(gameId);
     // Will trigger host invitation / membership.
     // Use replicate, since future changes to game-data will replicate to 
     // dbGameIndex
@@ -220,13 +379,15 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     app.use(expressHttpProxy(`http://localhost:${webAppCompiled}`));
   }
 
-  http.createServer(app).listen(app.get('port'));
+  if (dbIsRemote) {
+    http.createServer(app).listen(app.get('port'));
+  }
 
   // Connect user game code to pbem-engine code.
   await _connectUserCode(gameCode, isProduction);
 
   // Now run our service
-  await _runServer(db, dbResolver);
+  await _runServer(dbPath, dbResolver);
 }
 
 

@@ -786,8 +786,6 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
   playerId: number;
   state: State;
   uiEvents: Array<_PbemEvent>;
-  // TODO: keep whether or not there is pending activity cached for the UI.
-  _pending: boolean = false;
   _watcher!: GamePlayerWatcher;
 
   constructor() {
@@ -797,7 +795,7 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
   }
 
   get hasPending(): boolean {
-    return this._pending;
+    return this._watcher.actionIsPending;
   }
 
   getRoundPlayerActions(): PbemActionWithId<Action>[] {

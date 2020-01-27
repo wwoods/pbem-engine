@@ -5,8 +5,8 @@
       td(v-for="i of [0, 1, 2]" style="border: solid 1px #000;" :class="{lastMove: getLastMove(j*3 + i) !== undefined}" @click="play(j*3 + i)")
         span {{$pbem.state.game.board[j * 3 + i]}}
 
-  div(v-if="$pbem.hasPending") Waiting on network...
   div {{$pbem.state.settings.players.reduce((a, b) => a + (b ? 1 : 0), 0)}} players in game.  {{$pbem.playerId}} is active.
+    span(:style="{visibility: $pbem.hasPending ? 'visible' : 'hidden', color: 'red'}") &nbsp;Waiting on network...
   div(v-if="$pbem.state.game.playerWillWin !== undefined")
     span {{$pbem.state.game.playerWillWin}}&nbsp;
     span(v-if="$pbem.state.gameEnded") has won!

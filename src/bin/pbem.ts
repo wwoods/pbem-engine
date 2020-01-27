@@ -20,6 +20,11 @@ const pbem_folder = "build";
 const pbem_client_folder = path.join(pbem_folder, "client");
 const pbem_client_src_folder = path.join(pbem_client_folder, "src");
 
+process.on('unhandledRejection', (reason, p) => {
+  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+  // application specific logging, throwing an error, or other logic here
+});
+
 program
   .version(require('../../package').version)
   .usage('<command> [options]')
@@ -130,7 +135,15 @@ program
       // OR use local device proxy https://stackoverflow.com/a/43426714/160205
     }
 
-    const p = require('../webserver').run(pbem_client_folder, webApp, config.db);
+    let db: string;
+    if (!config.db) {
+      db = 'local';//./build/pbem-db/';
+    }
+    else {
+      db = config.db;
+    }
+
+    const p = require('../webserver').run(pbem_client_folder, webApp, db);
     p.catch((e: any) => {
       console.error(e);
       process.exit(1);

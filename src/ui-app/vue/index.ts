@@ -108,6 +108,9 @@ function checkPackageConfig(buildPath: string, cfg: any, pbemCfg: Config) {
         cfg[i] = pbemCfg[i];
       }
     }
+    else if (i === "db") {
+      // Nothing to do
+    }
     else if (i === "pbem-extra") {
       // See that all extras UI packages are installed
       const cc = cfg[i] || [];

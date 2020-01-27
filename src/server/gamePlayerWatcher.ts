@@ -24,6 +24,9 @@ export class GamePlayerWatcher {
     turnEnd: () => void;
   }>();
 
+  get actionIsPending() {
+    return this._actionIsPending;
+  }
   get isTurnEnded() {
     if (this._actionLatest === this._actionCurrent
         && this._state.turnEnded[this._playerIdx]) {
@@ -42,7 +45,7 @@ export class GamePlayerWatcher {
   // Game ID.
   _gameId: string;
 
-  // If defined, store a list of changes which need to be processed after 
+  // If defined, store a list of changes which need to be processed after
   // initialization is confirmed.
   _initQueue?: DbGame[] = [];
 
@@ -50,6 +53,7 @@ export class GamePlayerWatcher {
   _playerIdx: number;
 
   _actionCurrent!: number;
+  _actionIsPending: boolean = false;
   _actionLatest!: number;
   // Mapping between request doc _id and game-data-action _id
   _actionRequestNewIds: {[key: string]: number} = {};
@@ -128,7 +132,7 @@ export class GamePlayerWatcher {
     }
     s.plugins._pbemWatcher = this;
 
-    // Start collecting changes; those which occur before we unset 
+    // Start collecting changes; those which occur before we unset
     // this._initQueue will be buffered, which is OK.
     if (!this._options.noContinuous) {
       const c = this._findCancel = this._db.changes({
@@ -144,6 +148,18 @@ export class GamePlayerWatcher {
 
     // Sets this._actionLatest, creates first RoundStart event if none existing.
     await this._actionLoadLatest();
+
+    // See if we had an outstanding action.
+    try {
+      const act = await this._db.get(DbUserActionRequestDoc.getId(this._gameId,
+          this._playerIdx.toString()));
+      if (act !== undefined) {
+        this._actionIsPending = true;
+      }
+    }
+    catch (e) {
+      if (e.name !== 'not_found') throw e;
+    }
 
     const queue = this._initQueue!;
     delete this._initQueue;
@@ -188,7 +204,10 @@ export class GamePlayerWatcher {
       }
 
       // Users can only request to try an action... for now.
-      const actionId = this._db.getUuid();
+      // TODO: offline-capable actions which don't wait on processing.
+      const actionId = DbUserActionRequestDoc.getId(this._gameId,
+          this._playerIdx.toString());  // this._db.getUuid();
+      this._actionIsPending = true;
       const actionDoc: DbUserActionRequestDoc = {
         _id: actionId,
         type: 'game-response-action',
@@ -258,7 +277,14 @@ export class GamePlayerWatcher {
   triggerLoadOrChange(doc: DbGame) {
     // When a game document is deleted, we have nothing to do.  Some other
     // change would have happened in tandem.
-    if (doc._deleted) return;
+    if (doc._deleted) {
+      if (doc.type === 'game-response-action'
+          && doc._id === DbUserActionRequestDoc.getId(this._gameId,
+            this._playerIdx.toString())) {
+        this._actionIsPending = false;
+      }
+      return;
+    }
 
     if (this._initQueue !== undefined) {
       this._initQueue.push(doc);

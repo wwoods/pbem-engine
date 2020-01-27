@@ -210,6 +210,13 @@ export interface DbUserActionRequestDoc {
   // Previously requested action index
   prev: number;
 }
+export namespace DbUserActionRequestDoc {
+  // Get the ID for a user requested action when the server must respond before
+  // the user can request another action.
+  export function getId(gameId: string, userId: string) {
+    return `${gameId}-q${userId}`;
+  }
+}
 
 /** Indicates that an action has occurred (by any user).
  * 

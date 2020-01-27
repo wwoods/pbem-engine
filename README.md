@@ -4,6 +4,13 @@ pbem-engine
 Ever wanted to make a game you can play with your friends, but not wanted to deal with the hassle of network code?  `pbem-engine` is designed to handle network communications in a principled manner, allowing developers to focus on game code.  The engine supports any game or software which may be implemented as a simultaneous, asynchronous turn-based game.
 
 
+Setup
+=====
+
+1. Install docker
+2. Run "docker run --rm couchdb:2.3.1"
+
+
 Running a PWA
 =============
 
