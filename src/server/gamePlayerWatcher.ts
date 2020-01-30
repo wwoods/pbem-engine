@@ -55,8 +55,6 @@ export class GamePlayerWatcher {
   _actionCurrent!: number;
   _actionIsPending: boolean = false;
   _actionLatest!: number;
-  // Mapping between request doc _id and game-data-action _id
-  _actionRequestNewIds: {[key: string]: number} = {};
   // Cache of all loaded / played / previewed actions...  Note that request
   // docs are inappropriate, as they do not allow for rollback/forward.
   _actionCache: {[key: number]: DbUserActionDoc} = {};
@@ -308,8 +306,6 @@ export class GamePlayerWatcher {
 
       const actionCurrent = this._actionCurrent;
       if (doc.request !== undefined) {
-        this._actionRequestNewIds[doc.request] = actionId;
-        
         // Request can be deleted; was it enacted as-is?
         // TODO
 
@@ -337,12 +333,6 @@ export class GamePlayerWatcher {
     }
     else if (doc.type === 'game-response-action') {
       // Requested action...
-      if (this._actionRequestNewIds[doc._id!] !== undefined) {
-        // This request was already turned into a real action, which has 
-        // priority.
-        return;
-      }
-
       if (this._playerIdx !== -1) {
         // Ignore;
         return;
@@ -519,7 +509,6 @@ export class GamePlayerWatcher {
     };
     if (requestId !== undefined) {
       actionDoc.request = requestId;
-      this._actionRequestNewIds[requestId] = actionSeq;
     }
     this._actionCache[actionSeq] = actionDoc;
 
@@ -537,6 +526,7 @@ export class GamePlayerWatcher {
    * run.  Keeps going until none found.
    * */
   _gameCheckNextAction() {
+    this._debug(`Considering with ${this._gameCheckInProgress}`);
     if (this._gameCheckInProgress) return;
     if (this._playerIdx !== -1) {
       throw new ServerError.ServerError("Only server may check next action");
@@ -544,18 +534,24 @@ export class GamePlayerWatcher {
 
     this._gameCheckInProgress = true;
     const p = (async () => {
-      while (await this._gameCheckNextAction_step()) {
-        // pass
+      try {
+        while (await this._gameCheckNextAction_step()) {
+          // pass
+        }
+      }
+      catch (e) {
+        this._debug(`_gameCheckNextAction: ${e}`);
+      }
+      finally {
+        this._gameCheckInProgress = false;
+        this._debug(`_gameCheckNextAction: off`);
       }
     })();
-    p.catch((e) => {
-      this._debug(`_gameCheckNextAction: ${e}`);
-    });
-    p.finally(() => { this._gameCheckInProgress = false; });
   }
   _gameCheckInProgress: boolean = false;
 
   async _gameCheckNextAction_step(): Promise<boolean> {
+    this._debug("_gameCheckNextAction_step()...");
     if (this._state.gameEnded) {
       const doc: DbGameDoc = await this._db.get(this._gameId);
       if (!doc.ended && !doc.ending) {
@@ -564,6 +560,7 @@ export class GamePlayerWatcher {
         await this._db.put(doc);
       }
       // Done!
+      this._debug("...game ended, exiting");
       return false;
     }
 
@@ -583,6 +580,7 @@ export class GamePlayerWatcher {
           playerOrigin: -1,
           game: {},
         });
+        this._debug("...round started");
         return true;
       }
     }
@@ -596,18 +594,18 @@ export class GamePlayerWatcher {
     })).docs as DbUserActionRequestDoc[];
 
     if (docs.length === 0) {
+      this._debug("...no documents");
       return false;
     }
 
     // Priority given based off of action order...
     const docsOrder = docs.map(x => {
-      const prev = x.prev;
-      const prevMapped = this._actionRequestNewIds[prev];
-      const prevId = prevMapped !== undefined ? prevMapped : prev;
-      return [prevId, x];
-    }).sort();
+      return [x.prev, x] as [number, DbUserActionRequestDoc];
+    });
+    docsOrder.sort();
 
-    const doc = docs[0];
+    const doc = docsOrder[0][1];
+    this._debug(`...processing ${doc._id}`);
 
     try {
       await this._actionValidateAndRunWithTriggersAndCommit(doc.action, 

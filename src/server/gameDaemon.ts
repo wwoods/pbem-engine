@@ -120,6 +120,8 @@ export class ServerGameDaemon {
           await repl;
         }
       }
+      // Don't return here, as we want to forward the deletion to the
+      // GameWatcher in case it needs to do something.
       //return;
     }
     

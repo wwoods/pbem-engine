@@ -170,6 +170,8 @@ export class _ServerLink {
     await this._dbUserLocalEnsureLoaded(userIdLocal, u[0].remoteToken, 
         u[0].remoteId);
     this._dbUserCurrent = this._dbUsersLoggedIn.get(userIdLocal);
+    console.log(`window.dbUserCurrent set for ${u[0].remoteName || u[0].name}`);
+    (window as any).dbUserCurrent = this._dbUserCurrent!;
     this._userCurrent = u[0];
     await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
       doc.userLoginLatestId = userIdLocal;
