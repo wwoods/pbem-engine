@@ -138,7 +138,11 @@ export async function run(gameCode: string, webAppCompiled: string | number,
           '-p', `${app.get("port")+1}:5984`,
           '--mount', `type=volume,src=${volName},dst=/opt/couchdb/data`,
           couchVersion,
-        ]);
+        ], {
+          // Important - don't lock up when log buffers fill up...
+          // that was an easy bug to overlook.
+          stdio: 'ignore',
+        });
     }
     catch (e) {
       console.log('Using a local DB path requires both docker to be installed '
