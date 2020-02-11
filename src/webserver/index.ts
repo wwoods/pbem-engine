@@ -87,13 +87,22 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     const couchVersion = 'couchdb:2.3.1';
 
     dbUser = 'pbemAdminUser';
-    // Choose a completely random, one-time password.  Should only be accessed
-    // through e.g. superlogin.
-    dbPassword = secureRandomPassword.randomPassword({
-      length: 32,
-      characters: secureRandomPassword.lower + secureRandomPassword.upper
-        + secureRandomPassword.digits,
-    });
+    const passFile = path.join(gameCode, '..', dbUser);
+    try {
+      dbPassword = (await fs.readFile(passFile, {encoding: 'utf8'})).trim();
+    }
+    catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+
+      // Choose a completely random, one-time password.  Should only be accessed
+      // through e.g. superlogin.
+      dbPassword = secureRandomPassword.randomPassword({
+        length: 32,
+        characters: secureRandomPassword.lower + secureRandomPassword.upper
+          + secureRandomPassword.digits,
+      });
+      await fs.writeFile(passFile, dbPassword + '\n');
+    }
     console.log(`PBEM /db Credentials: ${dbUser} / ${dbPassword}`);
     dbProtocol = 'http://';
     // Would use "localhost", but e.g. Docker has issues, so keep it to
