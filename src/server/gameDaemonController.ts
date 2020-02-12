@@ -14,7 +14,7 @@ import { ServerGameDaemon } from './gameDaemon';
 import PouchDb from './pouch';
 
 
-type DaemonStatus = {
+export type DaemonStatus = {
   _id: string;
   _rev?: string;
 
@@ -131,7 +131,7 @@ export namespace ServerGameDaemonController {
         try {
           if (gameId !== undefined) {
             const p = new Promise((resolve, reject) => {
-              const sgd = new ServerGameDaemon(running, db as PouchDB.Database<DbGame>, 
+              const sgd = new ServerGameDaemon(running, db as PouchDB.Database<DbGame>,
                   dbResolver, context, gameId!);
               sgd.events.on("close", () => {
                 resolve();
@@ -160,7 +160,10 @@ export namespace ServerGameDaemonController {
 
       // For non-local servers, the retry point sits in the server, watching
       // _global_changes.  So, don't retry non-local context.
-      if (context !== 'local') return;
+      if (context !== 'local') {
+        running && running.debug(`${id} - stopping remotely`);
+        return;
+      }
 
       // Also don't retry if the UI is no longer showing this game, even if it
       // is local.

@@ -218,7 +218,15 @@ export class GamePlayerWatcher {
       //this._actionCache[actionId] = actionDoc;
       //this._actionCurrent = actionId;
       // Async... do local modifications first
-      const r = await this._db.put(actionDoc);
+      try {
+        const r = await this._db.put(actionDoc);
+      }
+      catch (e) {
+        console.log(e);
+        console.log(actionDoc);
+        e.docId = actionDoc._id;
+        throw e;
+      }
     }
   }
 

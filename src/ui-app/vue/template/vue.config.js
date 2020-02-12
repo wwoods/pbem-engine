@@ -19,6 +19,9 @@ module.exports = {
       enforce: 'pre',
     });
   },
+  devServer: {
+    disableHostCheck: true,
+  },
   pwa: {
     name: packageJson.description,
     workboxPluginMode: 'InjectManifest',
