@@ -228,7 +228,8 @@ export namespace ServerGameDaemonController {
         const gameDb = dbResolver(doc.gameAddr.host.id);
         if (gameDb === undefined) {
           // A local game, but not one on this device.  Cannot do much here.
-          token.debug(`Failed to get db ${doc.gameAddr.host.id}`);
+          token.debug(`Failed to get local game db ${doc.gameAddr.host.id}; `
+              + `ignoring`);
           return;
         }
 
