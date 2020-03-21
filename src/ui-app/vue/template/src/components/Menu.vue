@@ -6,12 +6,12 @@
       .pbem-login
         div
           span New user name:
-          input(type="text" autocomplete="off" autocorrect="off" spellcheck="false" 
+          input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
               v-model="username")
           input(type="button" @click="userCreate(username)" value="Create")
       .pbem-login
         .select-list
-          .select(v-for="user of users" @click="userLogin(user.localId)" 
+          .select(v-for="user of users" @click="userLogin(user.localId)"
               :userId="user.localId"
               :style="{'font-weight': $pbemServer.userLocalId === user.localId ? 'bold' : ''}"
               ) {{user.name}}
@@ -22,25 +22,46 @@
         .block.thin
           .title User Account
           div(v-if="$pbemServer.userCurrent.remoteName === undefined")
-            div(style="font-weight: bold") New user registration
-            div(v-if="onlineRegisterErrors.length > 0")
-              div(style="color: #f00") {{onlineRegisterErrors}}
-            table(style="width: 100%")
-              tr
-                td(style="text-align: right") Username
-                td
-                  input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
-                    v-model="onlineUsername" style="width: 90%;")
-              tr
-                td(style="text-align: right") E-mail
-                td
-                  input(type="email" v-model="onlineEmail" style="width: 90%;")
-              tr
-                td(style="text-align: right") Password
-                td
-                  input(type="password" v-model="onlinePassword" style="width: 90%;")
-            div
-              input(type="button" value="Register" @click="onlineRegister")
+            div(v-if="onlineUserNew")
+              //- New user registration
+              div(style="font-weight: bold") New user registration
+              div(v-if="onlineRegisterErrors.length > 0")
+                div(style="color: #f00") {{onlineRegisterErrors}}
+              table(style="width: 100%")
+                tr
+                  td(style="text-align: right") Username
+                  td
+                    input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
+                      v-model="onlineUsername" style="width: 90%;")
+                tr
+                  td(style="text-align: right") E-mail
+                  td
+                    input(type="email" v-model="onlineEmail" style="width: 90%;")
+                tr
+                  td(style="text-align: right") Password
+                  td
+                    input(type="password" v-model="onlinePassword" v-on:keyup.enter="onlineRegister" style="width: 90%;")
+              div
+                input(type="button" value="Register" @click="onlineRegister")
+                input(type="button" value="Already Have Account" @click="onlineUserNew = !onlineUserNew")
+            div(v-else)
+              //- Log in as existing
+              div(style="font-weight: bold") Existing user log in
+              div(v-if="onlineRegisterErrors.length > 0")
+                div(style="color: #f00") {{onlineRegisterErrors}}
+              table(style="width: 100%")
+                tr
+                  td(style="text-align: right") Username
+                  td
+                    input(type="text" autocomplete="off" autocorrect="off" spellcheck="false"
+                      v-model="onlineUsername" style="width: 90%;")
+                tr
+                  td(style="text-align: right") Password
+                  td
+                    input(type="password" v-model="onlinePassword" v-on:keyup.enter="onlineRegister" style="width: 90%;")
+              div
+                input(type="button" value="Login" @click="onlineRegister")
+                input(type="button" value="New Account" @click="onlineUserNew = !onlineUserNew")
           div(v-else)
             div(style="font-weight: bold") {{$pbemServer.userCurrent.remoteName}}
             div(v-if="onlineRegisterErrors.length > 0")
@@ -49,14 +70,14 @@
               div Log in again
               div
                 span Password
-                input(type="password" v-model="onlinePassword")
+                input(type="password" v-model="onlinePassword" v-on:keyup.enter="onlineLogin")
               div
                 input(type="button" value="Log In" @click="onlineLogin")
         .block.thin(v-if="$pbemServer.userCurrent.remoteToken !== undefined")
           .title Active games
           .select-list
             .select(
-                v-for="game of gamesRemote" 
+                v-for="game of gamesRemote"
                 :gameId="game.game"
                 @click="gameLoad(game.game)"
                 )
@@ -80,7 +101,7 @@
           .title Active games
           .select-list
             .select(
-                v-for="game of gamesLocal" 
+                v-for="game of gamesLocal"
                 :gameId="game.game"
                 @click="gameLoad(game.game)"
                 )
@@ -166,6 +187,7 @@ export default Vue.extend({
       users: [] as Array<DbLocalUserDefinition>,
       userRemoteToken: '' as string | undefined,
       onlineCheckCallback: null as any,
+      onlineUserNew: true,
       onlineUsername: '',
       onlineEmail: '',
       onlinePassword: '',
@@ -269,7 +291,7 @@ export default Vue.extend({
         clearInterval(this.onlineCheckCallback);
         this.onlineCheckCallback = null;
       }
-      
+
       // Force a redraw.
       this.userRemoteToken = this.$pbemServer.userCurrent!.remoteToken;
 
@@ -348,7 +370,7 @@ export default Vue.extend({
       return this.gamesRemote.map(x => x.game).indexOf(game.game) !== -1;
     },
     async onlineGameJoin(game: DbGameDoc) {
-      // We just make a membership document, and the server takes care of the 
+      // We just make a membership document, and the server takes care of the
       // rest.
       let hasSpace = false;
       for (const u of game.settings.players) {
@@ -392,15 +414,26 @@ export default Vue.extend({
       this.onlineRegisterErrors = '';
       try {
         const username = this.onlineUsername.toLowerCase();
-        const response = await axios.post('/auth/register', {
-          username: username,
-          email: this.onlineEmail,
-          password: this.onlinePassword,
-          confirmPassword: this.onlinePassword,
-        });
+        if (this.onlineUserNew) {
+          const response = await axios.post('/auth/register', {
+            username: username,
+            email: this.onlineEmail,
+            password: this.onlinePassword,
+            confirmPassword: this.onlinePassword,
+          });
 
-        // On success, save information, and log in.
-        await this.$pbemServer.userCurrentSetRemote(username);
+          // On success, save information, and log in.
+          await this.$pbemServer.userCurrentSetRemote(username);
+        }
+        else {
+          const response = await axios.post('/auth/login', {
+            username: username,
+            password: this.onlinePassword,
+          });
+
+          // On success, save user and log in.
+          await this.$pbemServer.userCurrentSetRemote(username);
+        }
 
         await this.onlineLogin();
       }
@@ -416,7 +449,7 @@ export default Vue.extend({
         this.onlineRegisterErrors = 'offline or server down';
         return;
       }
-      
+
       const r = e.response.data;
       const msg = [];
       if (Object.keys(r).indexOf('validationErrors') !== -1) {
