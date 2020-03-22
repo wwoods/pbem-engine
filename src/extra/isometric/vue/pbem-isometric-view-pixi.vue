@@ -165,7 +165,10 @@ export default Vue.extend({
     },
     p_renderFrame() {
       if (!this.alive) {
-        console.log('quitting render');
+        // NOTE -- if you use e.g. the browser back button, and re-join another
+        // game, a page refresh is required.  As of 2020-03-21, I am not sure
+        // how to circumvent this.
+        console.log('quitting render.  refresh if graphics issues after this point');
         return;
       }
       requestAnimationFrame(this.p_renderFrame);
