@@ -34,11 +34,20 @@ export class _ServerLink {
     if (newPlayer !== undefined) {
       this._localPlayerActive = newPlayer;
       const p = this.localPlayers[newPlayer];
-      const pg = this._localPlayerWatchers[newPlayer];
-      this.localPlayerView.playerId = p.index;
-      this.localPlayerView.state = pg.state;
-      this.localPlayerView.uiEvents = [];
-      this.localPlayerView._watcher = pg;
+      if (!p) {
+        // I believe some "turnEnd" events may be triggered prior to the
+        // localPlayers array being populated.
+        if (this.localPlayers.length !== 0) {
+          throw new Error("Invalid player configuration.");
+        }
+      }
+      else {
+        const pg = this._localPlayerWatchers[newPlayer];
+        this.localPlayerView.playerId = p.index;
+        this.localPlayerView.state = pg.state;
+        this.localPlayerView.uiEvents = [];
+        this.localPlayerView._watcher = pg;
+      }
     }
     return this._localPlayerActive;
   }
