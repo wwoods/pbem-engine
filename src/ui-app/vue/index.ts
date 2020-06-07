@@ -128,7 +128,9 @@ function checkPackageConfig(buildPath: string, cfg: any, pbemCfg: Config) {
         for (const extra of pc) {
           const vueSrc = path.join(pbemExtra, extra, 'vue');
           if (fs.existsSync(vueSrc)) {
-            fsExtra.copySync(vueSrc, path.join(extraPath, extra));
+            // Do it as a symlink for development purposes
+            fsExtra.ensureSymlinkSync(vueSrc, path.join(extraPath, extra));
+            //fsExtra.copySync(vueSrc, path.join(extraPath, extra));
             plugs.push(extra);
           }
         }
