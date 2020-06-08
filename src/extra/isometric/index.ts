@@ -94,6 +94,16 @@ export class PbemIsometric<Entity extends PbemIsometricEntity> implements PbemPl
     return z;
   }
 
+  /** Return coordinates occupied by this object:
+   *      sx: Starting x coordinate
+   *      sy: Starting y coordinate
+   *      sz: Starting z (height) coordinate
+   *      ex: Ending x coordinate, exclusive.
+   *      ey: Ending y coordinate, exclusive.
+   *      ez: Ending z coordinate, exclusive.
+   *      mask: Mask of size ``[ez - sz, ey - sy, ex - sx]`` deterimining the
+   *        exact space occupied by this object.
+   */
   getDimAndMask(tile: TileData): {sx: number, sy: number, sz: number, ex: number, ey: number, ez: number, mask: TileSizeMask | undefined} {
     const x1 = tile.x;
     const y1 = tile.y;

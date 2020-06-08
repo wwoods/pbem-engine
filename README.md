@@ -33,3 +33,8 @@ Housekeeping
 Notes:
 
 * In `tsconfig.json`, `lib: "dom"` was added until https://github.com/DefinitelyTyped/DefinitelyTyped/issues/36082 is resolved.
+
+TODO:
+
+* When remote game starts, there's an index error...
+* Allow actions to opt-out of wait-for-network behavior (game can specify default mode of user-space actions).

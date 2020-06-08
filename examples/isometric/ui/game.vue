@@ -8,6 +8,8 @@
         :pixiTypeFactory="pixiTypeFactory"
         startView="8, 8")
       //-
+        I'd love it if this worked.  But, it turns out that SVG renderers are
+        just horribly unoptimized for live animation.  Hence, pixi.
         template(v-slot:default="{ e }")
           //- Already in a {left: ... top: ... z-index: ... position: absolute} setup
           template(v-if="e.playerPiece")
