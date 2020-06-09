@@ -1,5 +1,6 @@
 <template lang="pug">
-  .container(v-hammer:pan="onPan" v-hammer:panend="onPan" v-hammer:tap="onTap" :vx="vx" :vy="vy")
+  .container(v-hammer:pan="onPan" v-hammer:panend="onPan" v-hammer:tap="onTap"
+      :vx="vx" :vy="vy" @mousewheel="onMousewheel")
 </template>
 
 <style scoped lang="scss">
@@ -325,6 +326,11 @@ export default Vue.extend({
       }
 
       this._pixi.renderer.render(stage);
+    },
+    onMousewheel(e: any) {
+      console.log(e);
+      this.vscale *= Math.exp(e.deltaY * -0.01);
+      this.vscale = Math.max(0.333, Math.min(2, this.vscale));
     },
     onPan(e: any) {
       if (!this._panActive) {
