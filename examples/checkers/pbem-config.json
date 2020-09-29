@@ -1,0 +1,34 @@
+{
+  "name": "PBEM Isometric Demo",
+  "version": "1.0.0",
+  "pbem-extra": [
+    "ecs",
+    "isometric"
+  ],
+  "game": {
+  },
+  "ui": {
+    "dependencies": {
+      "pixi.js": "^5.1.5",
+      "pixi-filters": "^3.0.3"
+    },
+    "devDependencies": {
+    }
+  },
+  "tslint": {
+    "rules": {
+      "array-type": false,
+      "curly": [true, "ignore-same-line"],
+      "indent": [true, "spaces", 2],
+      "interface-name": false,
+      "max-classes-per-file": false,
+      "member-access": false,
+      "no-consecutive-blank-lines": false,
+      "object-literal-key-quotes": [true, "as-needed"],
+      "object-literal-sort-keys": false,
+      "one-line": [true, "check-open-brace"],
+      "ordered-imports": false,
+      "quotemark": [true, "single"]
+    }
+  }
+}

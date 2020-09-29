@@ -31,7 +31,7 @@ export class ServerGameDaemon {
   _creator!: DbUserId;
   _db: PouchDB.Database<DbGame>;
   _dbResolver: (dbName: string) => PouchDB.Database<DbUser> | undefined;
-  _debug: debug.Debugger;
+  _debug: {(v: any): void};
   _host!: DbUserId;
   _id: string;
   // DBs open for replicating to, or undefined, if game host != context.  That
@@ -57,7 +57,7 @@ export class ServerGameDaemon {
     this._db = db;
     this._id = gameId;
     this._dbResolver = dbResolver;
-    this._debug = this._token.debug;
+    this._debug = this._token.debug.bind(this._token);
 
     this.activate();
   }

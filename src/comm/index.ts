@@ -13,7 +13,8 @@ import axios from 'axios';
 
 import PouchDb from '../server/pouch';
 
-import {_GameHooks, _PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId, PbemPlayer,
+import {_GameHooks, _PbemAction, _PbemEvent, _PbemSettings, _PbemState, PbemDbId,
+  PbemDevScenario, PbemPlayer,
   PbemPlayerView, PbemAction, PbemActionWithDetails, PbemActionWithId, PbemEvent, 
   PbemState, _GameActionTypes} from '../game';
 import {ServerError} from '../server/common';
@@ -142,7 +143,19 @@ export class _ServerLink {
     throw new ServerError.ServerError(`Could not resolve local ${iLocal.id}`);
   }
 
-  /** Create and switch to local user `username`.
+
+  /** Cleanup all dev resources, including users, games, etc. */
+  async devCleanup() {
+    const userList = this._usersLocal;
+    for (const u of userList) {
+      if (u.name.startsWith('dev-s-')) {
+        await this.userDelete(u.name);
+      }
+    }
+  }
+
+
+  /** Create and activate local user `username`.
    * */
   async userCreate(username: string) {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_ ]*/.test(username)) {
@@ -165,7 +178,38 @@ export class _ServerLink {
       return doc as DbLocalUsersDoc;
     });
 
+    await this._dbUserLocalEnsureLoaded(userId, undefined, undefined);
     return userId;
+  }
+
+  /** Remove a local user */
+  async userDelete(username: string) {
+    let found = false;
+    const toDelete = new Array<string>();
+    await this._dbLocal.upsert('users', (doc: Partial<DbLocalUsersDoc>) => {
+      const users = this._usersLocal = doc.users!;
+
+      const uId = users.map(x => x.name).indexOf(username);
+      if (uId >= 0) {
+        found = true;
+        toDelete.push(users[uId].localId);
+        users.splice(uId, 1);
+      }
+
+      return doc as DbLocalUsersDoc;
+    });
+
+    for (const uLocal of toDelete) {
+      const uDb = this._dbUsersLoggedIn.get(uLocal);
+      if (uDb !== undefined) {
+        this._dbUsersLoggedIn.delete(uLocal);
+        await uDb.destroy();
+      }
+    }
+
+    if (!found) {
+      throw new Error(`Could not find user: ${username}`);
+    }
   }
 
   /** Switch to local user with specified local ID.
@@ -377,6 +421,101 @@ export class _ServerLink {
       }
     }
     this.localPlayerActive(firstPlayer);
+  }
+
+  async gameLoadScenario<Settings extends _PbemSettings, State extends _PbemState,
+      Action extends _PbemAction>(scenario: PbemDevScenario): Promise<void> {
+    // A scenario is loaded by A) initializing users, B) switching to the first
+    // user, C) creating game documents.
+    const s = scenario;
+
+    await this.devCleanup();
+
+    const players: Array<PbemPlayer|undefined> = [];
+    const playersTbd: Array<PbemPlayer|undefined> = [];
+    let firstUser!: string, firstUserName!: string;
+    for (let i = 0, m = s.settings.players.length; i < m; i++) {
+      const p = s.settings.players[i];
+      if (!p) players.push(undefined);
+      else {
+        const name = `dev-s-${i}`;
+        const id = await this.userCreate(name);
+        if (!firstUser) {
+          firstUser = id;
+          firstUserName = name;
+        }
+
+        playersTbd.push({
+          name,
+          status: 'joined',
+          dbId: {
+            type: 'local',
+            id,
+          },
+          playerSettings: p.playerSettings || {},
+          index: i,
+        });
+
+        if (i === 0) {
+          players.push(playersTbd[playersTbd.length - 1]);
+        }
+        else {
+          players.push(undefined);
+        }
+      }
+    }
+
+    if (firstUser === undefined || firstUserName === undefined) throw new Error("No players defined?");
+
+    await this.userLogin(firstUser);
+
+    // Create the game
+    const settings = _PbemSettings.create() as Settings;
+    settings.players = players;
+
+    const allDocs = new Array<any>();
+
+    const gameId = 'game-dev' + this._dbUserCurrent!.getUuid().substr(0, 8);
+    const gameDoc: DbGameDoc = {
+      _id: gameId,
+      game: gameId,
+      type: 'game-data',
+      host: {type: 'local', id: firstUser},
+      hostName: firstUserName,
+      createdBy: {type: 'local', id: firstUser},
+      phase: 'staging',
+      settings: settings,
+    };
+    allDocs.push(gameDoc);
+    allDocs.push({
+      _id: DbUserGameMembershipDoc.getId(gameId, firstUser),
+      type: 'game-response-member',
+      userId: gameDoc.host,
+      gameAddr: {
+        host: gameDoc.host,
+        id: gameId,
+      },
+      game: gameId,
+      hostName: gameDoc.hostName,
+      status: 'joined',
+    });
+    await this._dbUserCurrent!.bulkDocs(allDocs);
+
+    for (let i = 1, m = playersTbd.length; i < m; i++) {
+      const p = playersTbd[i];
+      if (p !== undefined) {
+        await this.stagingPlayerAdd(gameId, i, p.dbId, p.name);
+      }
+    }
+
+    await this.stagingStartGame(gameId);
+
+    console.log('ABOUT TO LOAD');
+    await new Promise((res, err) => {
+      setTimeout(res, 3000);
+    });
+    console.log('LOADED');
+    await this.gameLoad(gameId);
   }
 
   gameUnload() {
@@ -666,7 +805,7 @@ export class _ServerLink {
   }
 
   /** Take a game in staging and start it. */
-  async stagingStartGame<Settings extends _PbemSettings>(gameId: string, settings: Settings): Promise<void> {
+  async stagingStartGame<Settings extends _PbemSettings>(gameId: string): Promise<void> {
     // Ensure fully replicated first?  Or only valid for local games?
     const {docs} = await this._dbUserCurrent!.find({selector: {_id: {$eq: gameId}}});
     if (docs.length === 0) {

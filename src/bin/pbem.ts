@@ -38,112 +38,14 @@ program
   .option('--production', 'compile UI; needed for e.g. PWA.  Will override '
     + 'NODE_ENV environment variable.')
   .action((cmd: any) => {
-    const cfg = './pbem-config.json';
-    assert(fs.existsSync(cfg), `No such file: ${cfg}`);
-    const config = JSON.parse(fs.readFileSync(cfg));
+    const buildResult = _gameBuild({
+        clean: cmd.opts().clean,
+        production: cmd.opts().production,
+        vueDebug: cmd.opts().vueDebug,
+    });
 
-    if (cmd.opts().clean) {
-      console.log("Cleaning...");
-      rimraf.sync(pbem_client_folder);
-    }
-
-    const vue = require('../ui-app/vue/index');
-    vue.setup(pbem_client_folder, config);
-
-    if (!fs.existsSync(".gitignore")) {
-      fs.writeFileSync(".gitignore", "/build");
-    }
-
-    //Since e.g. webpack doesn't deal well with symlinks, we have to live-
-    //copy the user's code into the project when it updates.
-    const gamePaths = _gameFilesGetPaths();
-    for (const g of gamePaths) {
-      _gameFilesUpdate(g, pbem_client_src_folder, true);
-    }
-
-    const watchers = new Array<any>();
-    const updates = new Map<string, number>();
-    for (const p of gamePaths) {
-      watchers.push(recursiveWatch(p, (fpath: string) => {
-        const now = Date.now();
-        updates.set(fpath, now);
-        const updateWatched = () => {
-          if (updates.get(fpath) === now && fs.existsSync(fpath)) {
-            _gameFilesUpdate(fpath, pbem_client_src_folder);
-          }
-        };
-        setTimeout(updateWatched, 10);
-      }));
-    }
-    if (cmd.opts().vueDebug) {
-      const templateSrc = path.join(__filename, '../../../src/ui-app/vue/template/src');
-      watchers.push(recursiveWatch(templateSrc, (fpath: string) => {
-        const now = Date.now();
-        updates.set(fpath, now);
-        const updateWatched = () => {
-          if (updates.get(fpath) === now && fs.existsSync(fpath)) {
-            const rel = path.relative(templateSrc, fpath);
-            try {
-              fsExtra.copySync(fpath, path.join(pbem_client_src_folder, rel), {
-                  preserveTimestamps: true});
-            }
-            catch (e) {
-              console.error(e);
-            }
-          }
-        };
-        setTimeout(updateWatched, 10);
-      }));
-    }
-
-    // Cannot use execFileSync: need event loop for file watch.
-    let webApp: number | string;
-
-    if (!cmd.opts().production && process.env.NODE_ENV !== 'production') {
-      webApp = process.env.PORT ? parseInt(process.env.PORT) - 1 : 8079;
-      const server = spawn('npx', 
-        ['--no-install', 'vue-cli-service', 'serve', '--port', webApp.toString()], 
-        {
-          cwd: pbem_client_folder,
-          stdio: 'inherit',
-        },
-      );
-      server.on('close', (code: number) => {
-        for (const w of watchers) {
-          w();
-        }
-
-        process.exitCode = code;
-      });
-      process.on('exit', () => {
-        server.kill();
-      });
-      const cleanExit = () => { process.exit(); };
-      process.on('SIGINT', cleanExit); // ctrl+c
-      process.on('SIGTERM', cleanExit); // kill
-    }
-    else {
-      webApp = path.join(pbem_client_folder, 'dist');
-      execFileSync('npm', ['run', 'build'], {
-        cwd: pbem_client_folder,
-        stdio: 'inherit',
-      });
-      // Note that real PWA requires HTTPS cert, or a local device proxy
-      // TODO ensure ~/.https-serve... rename that folder?
-      // (mkdir -p $HOME/.https-serve/ && cd $HOME/.https-serve/ && sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt)
-      // PWA needs trusted? https://certbot.eff.org/lets-encrypt/ubuntubionic-other
-      // OR use local device proxy https://stackoverflow.com/a/43426714/160205
-    }
-
-    let db: string;
-    if (!config.db) {
-      db = 'local';//./build/pbem-db/';
-    }
-    else {
-      db = config.db;
-    }
-
-    const p = require('../webserver').run(pbem_client_folder, webApp, db);
+    const p = require('../webserver').run(pbem_client_folder,
+        buildResult.webApp, buildResult.db);
     p.catch((e: any) => {
       console.error(e);
       process.exit(1);
@@ -152,11 +54,140 @@ program
 ;
 
 
+function _gameBuild(gameConfig: {clean?: boolean, production?: boolean,
+    vueDebug?: boolean}) {
+  const cfg = './pbem-config.json';
+  assert(fs.existsSync(cfg), `No such file: ${cfg}`);
+  const config = JSON.parse(fs.readFileSync(cfg));
+
+  if (gameConfig.clean) {
+    console.log("Cleaning...");
+    rimraf.sync(pbem_client_folder);
+  }
+
+  const vue = require('../ui-app/vue/index');
+  vue.setup(pbem_client_folder, config);
+
+  if (!fs.existsSync(".gitignore")) {
+    fs.writeFileSync(".gitignore", "/build");
+  }
+
+  //Since e.g. webpack doesn't deal well with symlinks, we have to live-
+  //copy the user's code into the project when it updates.
+  const gamePaths = _gameFilesGetPaths();
+  for (const g of gamePaths) {
+    _gameFilesUpdate(g, pbem_client_src_folder, true);
+  }
+
+  const watchers = new Array<any>();
+  const updates = new Map<string, number>();
+  for (const p of gamePaths) {
+    watchers.push(recursiveWatch(p, (fpath: string) => {
+      const now = Date.now();
+      updates.set(fpath, now);
+      const updateWatched = () => {
+        if (updates.get(fpath) === now && fs.existsSync(fpath)) {
+          _gameFilesUpdate(fpath, pbem_client_src_folder);
+        }
+      };
+      setTimeout(updateWatched, 10);
+    }));
+  }
+  if (gameConfig.vueDebug) {
+    // TODO currently, even with --vue-debug, which would be better named
+    // --pbem-debug...
+    // One must run "npm run build" to update the pbem source code modules
+    // when debugging client code. That's a pain. We should additionally put
+    // a watch on the `src` folder, and run "npm run build" once a change is
+    // detected. Additionally, changes to the `src` folder should _NOT_ trigger
+    // Vue's intrinsic hot reload on the client application, which is a bit
+    // of a challenge.
+    const templateSrc = path.join(__filename, '../../../src/ui-app/vue/template/src');
+    watchers.push(recursiveWatch(templateSrc, (fpath: string) => {
+      const now = Date.now();
+      updates.set(fpath, now);
+      const updateWatched = () => {
+        if (updates.get(fpath) === now && fs.existsSync(fpath)) {
+          const rel = path.relative(templateSrc, fpath);
+          try {
+            fsExtra.copySync(fpath, path.join(pbem_client_src_folder, rel), {
+                preserveTimestamps: true});
+          }
+          catch (e) {
+            console.error(e);
+          }
+        }
+      };
+      setTimeout(updateWatched, 10);
+    }));
+  }
+
+  // Cannot use execFileSync: need event loop for file watch.
+  let webApp: number | string;
+
+  if (!gameConfig.production && process.env.NODE_ENV !== 'production') {
+    webApp = process.env.PORT ? parseInt(process.env.PORT) - 1 : 8079;
+    const server = spawn('npx',
+      ['--no-install', 'vue-cli-service', 'serve', '--port', webApp.toString()],
+      {
+        cwd: pbem_client_folder,
+        stdio: 'inherit',
+      },
+    );
+    server.on('close', (code: number) => {
+      for (const w of watchers) {
+        w();
+      }
+
+      process.exitCode = code;
+    });
+    process.on('exit', () => {
+      server.kill();
+    });
+    const cleanExit = () => { process.exit(); };
+    process.on('SIGINT', cleanExit); // ctrl+c
+    process.on('SIGTERM', cleanExit); // kill
+  }
+  else {
+    webApp = path.join(pbem_client_folder, 'dist');
+    execFileSync('npm', ['run', 'build'], {
+      cwd: pbem_client_folder,
+      stdio: 'inherit',
+    });
+    // Note that real PWA requires HTTPS cert, or a local device proxy
+    // TODO ensure ~/.https-serve... rename that folder?
+    // (mkdir -p $HOME/.https-serve/ && cd $HOME/.https-serve/ && sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout server.key -out server.crt)
+    // PWA needs trusted? https://certbot.eff.org/lets-encrypt/ubuntubionic-other
+    // OR use local device proxy https://stackoverflow.com/a/43426714/160205
+  }
+
+  let db: string;
+  if (!config.db) {
+    db = 'local';//./build/pbem-db/';
+  }
+  else {
+    db = config.db;
+  }
+
+  return {db, webApp};
+}
+
+
 function _gameFilesGetPaths() {
+  const paths = new Array<string>();
+
   //Copy in the "game" and "ui" contents.
   const gamePath = fs.existsSync("game.ts") ? "game.ts" : "game";
+  paths.push(gamePath);
   const uiPath = fs.existsSync("ui.ts") ? "ui.ts" : "ui";
-  return [gamePath, uiPath];
+  paths.push(uiPath);
+
+  // Optional "test" folder.
+  const testPath = fs.existsSync("test") ? "test" : "";
+  if (testPath) {
+    paths.push(testPath);
+  }
+  return paths;
 }
 
 

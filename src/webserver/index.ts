@@ -8,13 +8,13 @@
 import bodyParser from 'body-parser';
 import {ChildProcess, execFile, spawn} from 'child_process';
 import chokidar from 'chokidar';
-import createDebug from 'debug';
-import express from 'express';
+import express, {Express} from 'express';
 import expressHttpProxy from 'express-http-proxy';
 import expressMung from 'express-mung';
 //import expressPouch from 'express-pouchdb';
 import {promises as fs} from 'fs';
 import http from 'http';
+import JSON5 from 'json5';
 import NodeCache from 'node-cache';
 import path from 'path';
 import process from 'process';
@@ -23,6 +23,7 @@ import SuperLogin from '@wwoods/superlogin';
 import tmp from 'tmp-promise';
 import url from 'url';
 
+import {debugCreate} from '../error';
 import {_pbemGameSetup, _PbemSettings} from '../game';
 import {sleep} from '../server/common';
 import { DbUser, DbGameDoc, DbUserId, DbGame } from '../server/db';
@@ -30,9 +31,9 @@ import {ServerGameDaemonController} from '../server/gameDaemonController';
 import PouchDb from '../server/pouch';
 
 /** NOTE: dbPath includes username and password! */
-export async function run(gameCode: string, webAppCompiled: string | number, 
+export async function run(gameCode: string, webAppCompiled: string | number,
     dbPath: string) {
-  createDebug.enable('pbem-engine:*');
+  debugCreate.enable('pbem-engine:*');
 
   let app = express();
   app.set('port', process.env.PORT || 8080);
@@ -290,7 +291,7 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     const userId = 'pbem$' + req.user._id;
 
     const s = _PbemSettings.create();
-    
+
     // Populate player 1 with host
     s.players[0] = {
       name: req.user._id, // remove pbem$
@@ -337,10 +338,10 @@ export async function run(gameCode: string, webAppCompiled: string | number,
         if (e.name !== 'conflict') throw e;
       }
     }
-    
+
     const dbGame = new PouchInternal<DbGame>(gameId);
     // Will trigger host invitation / membership.
-    // Use replicate, since future changes to game-data will replicate to 
+    // Use replicate, since future changes to game-data will replicate to
     // dbGameIndex
     await dbGameIndex.replicate.to(dbGame, {
       doc_ids: [gameDoc._id!],
@@ -388,6 +389,8 @@ export async function run(gameCode: string, webAppCompiled: string | number,
     }
   }
   else {
+    // Install dev tools
+    _connectDevRoutes(gameCode, app);
     // Proxy to development server
     app.use(expressHttpProxy(`http://localhost:${webAppCompiled}`));
   }
@@ -404,32 +407,52 @@ export async function run(gameCode: string, webAppCompiled: string | number,
 }
 
 
-/** Build user game code in a nodeJS-compatible manner, and plug it into 
+/** Connect development routes into the app server.
+ * */
+function _connectDevRoutes(gameCode: string, app: Express) {
+  const scenDir = path.join(path.resolve(gameCode), 'src', 'test',
+      'scenario');
+
+  app.get('/dev/scenarios', async (req, res) => {
+    if (!await fsExists(scenDir)) {
+      res.status(500).send('Not found: need test/scenario folder');
+      return;
+    }
+
+    const scenarios = await fs.readdir(scenDir);
+    res.json({
+      scenarios,
+    });
+  });
+
+  app.get('/dev/scenario', async (req, res) => {
+    const scenarioSrc = await fs.readFile(
+        path.join(scenDir, req.query.scenario as string),
+        {encoding: 'utf8'});
+    const scenario = JSON5.parse(scenarioSrc);
+    res.json({
+      scenario,
+    });
+  });
+}
+
+
+/** Build user game code in a nodeJS-compatible manner, and plug it into
  * pbem-engine's game hooks.
- * 
+ *
  * If not production, also watch for changes using chokidar.
  * */
 async function _connectUserCode(gameCode: string, isProduction: boolean) {
-  // Ideally this would steal from Vue's compilation process, but that is 
+  // Ideally this would steal from Vue's compilation process, but that is
   // compiled for use in browser.  We need a node-compatible version.
-
-  const exists = async (p: string) => {
-    try {
-      await fs.stat(p);
-      return true;
-    }
-    catch (e) {
-      return false;
-    }
-  };
 
   // Path to game source file/directory
   let gameSourcePath = path.join(path.resolve(gameCode), 'src', 'game');
-  if (!await exists(gameSourcePath)) {
-    if (await exists(gameSourcePath + '.js')) {
+  if (!await fsExists(gameSourcePath)) {
+    if (await fsExists(gameSourcePath + '.js')) {
       gameSourcePath += '.js';
     }
-    else if (await exists(gameSourcePath + '.ts')) {
+    else if (await fsExists(gameSourcePath + '.ts')) {
       gameSourcePath += '.ts';
     }
     else {
@@ -452,7 +475,7 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
   let tsFile: string | undefined;
   let modulePath: string = gameSourcePath;
   let maybeTsFile = path.join(gameCode, 'tsconfig.json');
-  if (await exists(maybeTsFile)) {
+  if (await fsExists(maybeTsFile)) {
     tsFile = "pbem-server-tsconfig.json";
     let contents = JSON.parse((await fs.readFile(maybeTsFile)).toString());
     contents.compilerOptions.module = "commonjs";
@@ -492,8 +515,8 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
       if (tsFile !== undefined) {
         await new Promise((resolve, reject) => {
           execFile(
-            'npx', 
-            ['--no-install', 'tsc', '-b', tsFile!], 
+            'npx',
+            ['--no-install', 'tsc', '-b', tsFile!],
             {
               cwd: gameCode,
             },
@@ -514,7 +537,7 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
           delete require.cache[p];
         }
       }
-      // Re-assign hooks; these are called into, so no other hot-reload code 
+      // Re-assign hooks; these are called into, so no other hot-reload code
       // should be necessary.
       let ok = false;
       try {
@@ -546,7 +569,7 @@ async function _connectUserCode(gameCode: string, isProduction: boolean) {
 
 
 /** Note that db includes user:pass information. */
-async function _runServer(db: string, 
+async function _runServer(db: string,
     dbResolver: {(dbName: string): PouchDB.Database<DbUser> | undefined}) {
   // Ensure that _global_changes exists
   const globalChanges = new PouchDb(db + '/_global_changes');
@@ -566,7 +589,18 @@ async function _runServer(db: string,
     }
     console.log(dbName);
     const dbConn = dbResolver(dbName)!;
-    ServerGameDaemonController.runForDb(dbConn, dbResolver, 'remote', 
+    ServerGameDaemonController.runForDb(dbConn, dbResolver, 'remote',
       undefined);
   });
 }
+
+const fsExists = async (p: string) => {
+  try {
+    await fs.stat(p);
+    return true;
+  }
+  catch (e) {
+    return false;
+  }
+};
+

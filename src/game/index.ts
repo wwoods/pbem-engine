@@ -543,6 +543,15 @@ export namespace PbemAction {
 }
 
 
+export interface _PbemDevScenario {
+  settings: _PbemSettings;
+  state?: _PbemState;
+  actions?: Array<_PbemAction>;
+}
+export interface PbemDevScenario extends _PbemDevScenario {
+}
+
+
 export const _GameHooks: {
   Settings?: PbemSettings.Hooks<_PbemSettings>,
   State?: PbemState.Hooks<PbemState<any, any, any>, _PbemAction>,
@@ -556,7 +565,7 @@ export function _pbemGameSetup<
     state: PbemState.Hooks<State, Action>,
     actionTypes: any) {
   _GameHooks.Settings = (settings as any) as PbemSettings.Hooks<_PbemSettings>;
-    _GameHooks.State = state as any;
+  _GameHooks.State = state as any;
   _GameActionTypes = actionTypes;
 }
 

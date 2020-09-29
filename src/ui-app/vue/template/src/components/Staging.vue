@@ -227,7 +227,7 @@ export default Vue.extend({
     async startGame() {
       const settings = this.settings;
       if (settings === undefined || !this.isHost) return;
-      await ServerLink.stagingStartGame(this.$route.params.id, settings);
+      await ServerLink.stagingStartGame(this.$route.params.id);
       // Router triggered by settings load watcher, which will pick up that
       // the game is no longer in the 'staging' phase and move to the 'game'
       // view.

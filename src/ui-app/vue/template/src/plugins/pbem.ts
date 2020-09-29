@@ -1,7 +1,7 @@
 import Vue from 'vue';
 import {PlayerView, ServerLink} from 'pbem-engine/lib/comm';
 import {DbLocalUserDefinition} from 'pbem-engine/lib/comm/db';
-import {PbemDbId, PbemSettings, _pbemGameSetup} from 'pbem-engine/lib/game';
+import {PbemDbId, PbemDevScenario, PbemSettings, _pbemGameSetup} from 'pbem-engine/lib/game';
 import {ServerError} from 'pbem-engine/lib/server/common';
 import {DbGameDoc, DbUserId} from 'pbem-engine/lib/server/db';
 import {ServerGameDaemonController} from 'pbem-engine/lib/server/gameDaemonController';
@@ -84,6 +84,9 @@ export const _pbemServer = {
   },
   async gameLoad(id: string) {
     await ServerLink.gameLoad(id);
+  },
+  async gameLoadScenario(scenario: PbemDevScenario) {
+    await ServerLink.gameLoadScenario(scenario);
   },
   gameUnload() {
     ServerLink.gameUnload();

@@ -1,0 +1,25 @@
+{
+  /** A scenario file must detail:
+    1. The settings for the game (game-data).
+    2. The beginning state (game-data-state).
+    3. Optionally, any actions taken (game-data-action).
+    */
+  settings: {
+    game: {seed: 1507},
+    players: [
+      {playerSettings: {}},
+      {playerSettings: {}},
+    ],
+  },
+
+  // Set as null to allow auto-generation; if your game initializer uses random
+  // state, you should use a seed for this case.
+  // This is the same as the initial 'game-data-state' document, or null
+  state: null,
+
+  // Array of game-data-action documents.
+  actions: [
+    {type: 'PbemAction.RoundStart'},
+  ],
+}
+

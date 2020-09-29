@@ -1,5 +1,5 @@
 import Vue from 'vue';
-import Router from 'vue-router';
+import Router, {RouteConfig} from 'vue-router';
 
 Vue.use(Router);
 
@@ -7,10 +7,7 @@ Vue.use(Router);
 // override the default layouts by checking for existence of e.g.
 // @/ui/pbem/Menu.
 
-export default new Router({
-  mode: 'hash',
-  base: process.env.BASE_URL,
-  routes: [
+const routes: Array<RouteConfig> = [
     {
       // Redirect for PWA functionality, similar to https://stackoverflow.com/a/54847456
       path: '/index.html',
@@ -34,5 +31,29 @@ export default new Router({
       name: 'game',
       component: () => import(/* webpackChunkName: "game" */ './components/Game.vue'),
     },
-  ],
+];
+
+if (process.env.NODE_ENV !== 'production') {
+  // Dev paths
+  console.log("pbem-engine: Manually navigate to '#/dev' for developer tools");
+
+  /** NOTE: all should have webpackChunkName: "dev" */
+  routes.push(...[
+    {
+      path: '/dev/s/:scenario',
+      name: 'dev-scenario',
+      component: () => import(/* webpackChunkName: "dev" */ './components/dev/Scenario.vue'),
+    },
+    {
+      path: '/dev',
+      name: 'dev',
+      component: () => import(/* webpackChunkName: "dev" */ './components/dev/Dev.vue'),
+    },
+  ]);
+}
+
+export default new Router({
+  mode: 'hash',
+  base: process.env.BASE_URL,
+  routes: routes,
 });
