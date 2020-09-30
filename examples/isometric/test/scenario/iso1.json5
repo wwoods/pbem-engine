@@ -19,7 +19,18 @@
 
   // Array of game-data-action documents.
   actions: [
-    {type: 'PbemAction.RoundStart'},
+    {type: 'Move', playerOrigin: 0, game: {
+        entity: '1537',
+        x: 9,
+        y: 9,
+        z: 1,
+    }},
+    {type: 'Move', playerOrigin: 0, game: {
+        entity: '1537',
+        x: 10,
+        y: 9,
+        z: 1,
+    }},
   ],
 }
 

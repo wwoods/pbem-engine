@@ -469,9 +469,13 @@ export class _ServerLink {
 
     await this.userLogin(firstUser);
 
-    // Create the game
+    // Create the game, transfer settings from scenario
     const settings = _PbemSettings.create() as Settings;
     settings.players = players;
+    for (const [k, v] of Object.entries(s)) {
+      if (k === 'players') continue;
+      (settings as any)[k] = v;
+    }
 
     const allDocs = new Array<any>();
 
@@ -516,6 +520,32 @@ export class _ServerLink {
     });
     console.log('LOADED');
     await this.gameLoad(gameId);
+
+    setTimeout(async () => {
+      // Run through scripted actions -- must happen after gameLoad, as that is
+      // where _localPlayerWatchers get assigned.
+      if (s.state !== null) {
+        throw new Error("Not impl: state in scenario");
+      }
+      for (const a of s.actions || []) {
+        let pOrigin: number = a.playerOrigin;
+        if (pOrigin === undefined) {
+          throw new Error("Must specify playerOrigin for scenario actions.");
+        }
+
+        this.localPlayerActive(pOrigin);
+        await this.localPlayerView.action(a);
+
+        while (true) {
+          await new Promise((res, rej) => {
+            setTimeout(res, 1);
+          });
+          if (!this.localPlayerView.hasPending) break;
+        }
+      }
+
+      console.log('SCENARIO ACTIONS COMPLETED');
+    }, 1);
   }
 
   gameUnload() {
@@ -972,6 +1002,10 @@ export class PlayerView<State extends _PbemState, Action extends _PbemAction> im
     PbemEvent.queueRemoveIfExists(this.uiEvents, event.eventId);
     // Wait to enqueue the event until after any previously registered events
     // have been cleared.
+    if (ServerLink._$nextTick === undefined) {
+      console.log(event);
+      throw new Error("_$nextTick was undefined? Logged event.");
+    }
     ServerLink._$nextTick!(() => {
       ServerLink._$nextTick!(() => {
         PbemEvent.queueAdd(this.uiEvents, event);

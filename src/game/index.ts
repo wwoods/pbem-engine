@@ -546,7 +546,7 @@ export namespace PbemAction {
 export interface _PbemDevScenario {
   settings: _PbemSettings;
   state?: _PbemState;
-  actions?: Array<_PbemAction>;
+  actions?: Array<PbemActionWithDetails<_PbemAction>>;
 }
 export interface PbemDevScenario extends _PbemDevScenario {
 }
