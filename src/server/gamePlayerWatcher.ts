@@ -389,7 +389,7 @@ export class GamePlayerWatcher {
         if (this._playerIdx === -1) {
           // No available RoundStart; make one
           if (this._actionCurrent !== -1) {
-            throw new ServerError.ServerError("Not first step, but no RoundStart?");
+            throw new ServerError.ServerError(`Not first step, but no RoundStart? ${this._actionCurrent}`);
           }
 
           await this._actionValidateAndRunWithTriggersAndCommit(
@@ -398,7 +398,7 @@ export class GamePlayerWatcher {
               playerOrigin: -1,
               game: {},
             } as PbemActionWithDetails<PbemAction.Types.RoundStart>);
-          this._debug(`Error: no first action which is 'PbemAction.RoundStart'?`);
+          this._debug(`Warning: no first action which is 'PbemAction.RoundStart'? Created.`);
         }
         break;
       }
