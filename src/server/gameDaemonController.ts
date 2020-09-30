@@ -508,15 +508,23 @@ export class DaemonToken {
     };
     isBrowser && window.addEventListener("beforeunload", onUnload);
 
+    // setInterval + async not guaranteed to fully complete before next
+    // iteration is launched. If IndexedDB is running slow for whatever reason,
+    // we don't want a daemon to compete with itself.
+    let active = false;
     this._heartbeatInterval = setInterval(async () => {
+      if (active) {
+        return;
+      }
+      active = true;
       try {
-        // Put latest seq handling information in database, and update 
+        // Put latest seq handling information in database, and update
         // heartbeat.
         if (this.defunct) {
           this._token.time = undefined;
         }
         else {
-          this._token.time = Date.now(); 
+          this._token.time = Date.now();
         }
         const r = await _daemons.put(this._token);
         this._token._rev = r.rev;
@@ -540,6 +548,9 @@ export class DaemonToken {
         }
 
         this.debug(`error: ${errFormat(e)}`);
+      }
+      finally {
+        active = false;
       }
     }, heartbeat);
   }
