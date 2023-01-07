@@ -22,7 +22,7 @@
   "devDependencies": {
     "@vue/cli-plugin-pwa": "^3.11.0",
     "@vue/cli-plugin-typescript": "^3.11.0",
-    "@vue/cli-service": "^3.11.0",
+    "@vue/cli-service": "^5.0.8",
     "pug": "^2.0.4",
     "pug-plain-loader": "^1.0.0",
     "sass": "^1.18.0",
